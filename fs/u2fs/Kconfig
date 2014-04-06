@@ -1,0 +1,9 @@
+config U2_FS
+	tristate "U2fs stackable file system (EXPERIMENTAL)"
+	depends on EXPERIMENTAL
+	help
+	  U2fs is a stackable file system which simply passes its
+	  operations to the lower layer.  It is designed as a useful
+	  template for developing or debugging other stackable file systems,
+	  and more (see Documentation/filesystems/u2fs.txt).  See
+	  <http://u2fs.filesystems.org/> for details.
