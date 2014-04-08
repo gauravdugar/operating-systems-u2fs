@@ -169,7 +169,7 @@ static int u2fs_open(struct inode *inode, struct file *file)
 {
 	int err = 0;
 	struct file *lower_file = NULL;
-	struct path lower_path;
+	struct path left_path;
 
 	/* don't open unhashed/deleted files */
 	if (d_unhashed(file->f_path.dentry)) {
@@ -185,8 +185,8 @@ static int u2fs_open(struct inode *inode, struct file *file)
 	}
 
 	/* open lower object and link u2fs's file struct to lower's */
-	u2fs_get_lower_path(file->f_path.dentry, &lower_path);
-	lower_file = dentry_open(lower_path.dentry, lower_path.mnt,
+	u2fs_get_left_path(file->f_path.dentry, &left_path);
+	lower_file = dentry_open(left_path.dentry, left_path.mnt,
 				 file->f_flags, current_cred());
 	if (IS_ERR(lower_file)) {
 		err = PTR_ERR(lower_file);
@@ -239,16 +239,16 @@ static int u2fs_fsync(struct file *file, loff_t start, loff_t end,
 {
 	int err;
 	struct file *lower_file;
-	struct path lower_path;
+	struct path left_path;
 	struct dentry *dentry = file->f_path.dentry;
 
 	err = generic_file_fsync(file, start, end, datasync);
 	if (err)
 		goto out;
 	lower_file = u2fs_lower_file(file);
-	u2fs_get_lower_path(dentry, &lower_path);
+	u2fs_get_left_path(dentry, &left_path);
 	err = vfs_fsync_range(lower_file, start, end, datasync);
-	u2fs_put_lower_path(dentry, &lower_path);
+	u2fs_put_path(dentry, &left_path);
 out:
 	return err;
 }

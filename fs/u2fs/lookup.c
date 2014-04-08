@@ -149,21 +149,21 @@ struct inode *u2fs_iget(struct super_block *sb, struct inode *lower_inode)
  *
  * @dentry: u2fs's dentry which interposes on lower one
  * @sb: u2fs's super_block
- * @lower_path: the lower path (caller does path_get/put)
+ * @left_path: the lower path (caller does path_get/put)
  */
 int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
-		     struct path *lower_path)
+		     struct path *left_path)
 {
 	int err = 0;
 	struct inode *inode;
 	struct inode *lower_inode;
-	struct super_block *lower_sb;
+	struct super_block *left_sb;
 
-	lower_inode = lower_path->dentry->d_inode;
-	lower_sb = u2fs_lower_super(sb);
+	lower_inode = left_path->dentry->d_inode;
+	left_sb = u2fs_lower_super(sb);
 
 	/* check that the lower file system didn't cross a mount point */
-	if (lower_inode->i_sb != lower_sb) {
+	if (lower_inode->i_sb != left_sb) {
 		err = -EXDEV;
 		goto out;
 	}
@@ -200,7 +200,7 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
 	struct dentry *lower_dir_dentry = NULL;
 	struct dentry *lower_dentry;
 	const char *name;
-	struct path lower_path;
+	struct path left_path;
 	struct qstr this;
 
 	/* must initialize dentry operations */
@@ -217,14 +217,14 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
 
 	/* Use vfs_path_lookup to check if the dentry exists or not */
 	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, 0,
-			      &lower_path);
+			      &left_path);
 
 	/* no error: handle positive dentries */
 	if (!err) {
-		u2fs_set_lower_path(dentry, &lower_path);
-		err = u2fs_interpose(dentry, dentry->d_sb, &lower_path);
+		u2fs_set_left_path(dentry, &left_path);
+		err = u2fs_interpose(dentry, dentry->d_sb, &left_path);
 		if (err) /* path_put underlying path on error */
-			u2fs_put_reset_lower_path(dentry);
+			u2fs_put_reset_left_path(dentry);
 		goto out;
 	}
 
@@ -251,9 +251,9 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
 	d_add(lower_dentry, NULL); /* instantiate and hash */
 
 setup_lower:
-	lower_path.dentry = lower_dentry;
-	lower_path.mnt = mntget(lower_dir_mnt);
-	u2fs_set_lower_path(dentry, &lower_path);
+	left_path.dentry = lower_dentry;
+	left_path.mnt = mntget(lower_dir_mnt);
+	u2fs_set_left_path(dentry, &left_path);
 
 	/*
 	 * If the intent is to create a file, then don't return an error, so
@@ -277,7 +277,7 @@ struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
 	BUG_ON(!nd);
 	parent = dget_parent(dentry);
 
-	u2fs_get_lower_path(parent, &lower_parent_path);
+	u2fs_get_left_path(parent, &lower_parent_path);
 
 	/* allocate dentry private data.  We free it in ->d_release */
 	err = new_dentry_private_data(dentry);
@@ -298,7 +298,7 @@ struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
 				u2fs_lower_inode(parent->d_inode));
 
 out:
-	u2fs_put_lower_path(parent, &lower_parent_path);
+	u2fs_put_path(parent, &lower_parent_path);
 	dput(parent);
 	return ret;
 }

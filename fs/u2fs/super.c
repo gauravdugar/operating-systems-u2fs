@@ -29,7 +29,7 @@ static void u2fs_put_super(struct super_block *sb)
 
 	/* decrement lower super references */
 	s = u2fs_lower_super(sb);
-	u2fs_set_lower_super(sb, NULL);
+	u2fs_set_left_super(sb, NULL);
 	atomic_dec(&s->s_active);
 
 	kfree(spd);
@@ -39,11 +39,11 @@ static void u2fs_put_super(struct super_block *sb)
 static int u2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	int err;
-	struct path lower_path;
+	struct path left_path;
 
-	u2fs_get_lower_path(dentry, &lower_path);
-	err = vfs_statfs(&lower_path, buf);
-	u2fs_put_lower_path(dentry, &lower_path);
+	u2fs_get_left_path(dentry, &left_path);
+	err = vfs_statfs(&left_path, buf);
+	u2fs_put_path(dentry, &left_path);
 
 	/* set return buf to our f/s to avoid confusing user-level utils */
 	buf->f_type = U2FS_SUPER_MAGIC;
@@ -148,11 +148,11 @@ void u2fs_destroy_inode_cache(void)
  */
 static void u2fs_umount_begin(struct super_block *sb)
 {
-	struct super_block *lower_sb;
+	struct super_block *left_sb;
 
-	lower_sb = u2fs_lower_super(sb);
-	if (lower_sb && lower_sb->s_op && lower_sb->s_op->umount_begin)
-		lower_sb->s_op->umount_begin(lower_sb);
+	left_sb = u2fs_lower_super(sb);
+	if (left_sb && left_sb->s_op && left_sb->s_op->umount_begin)
+		left_sb->s_op->umount_begin(left_sb);
 }
 
 const struct super_operations u2fs_sops = {
