@@ -12,37 +12,37 @@
 #include "u2fs.h"
 
 static ssize_t u2fs_read(struct file *file, char __user *buf,
-			   size_t count, loff_t *ppos)
+		size_t count, loff_t *ppos)
 {
 	int err;
 	struct file *lower_file;
 	struct dentry *dentry = file->f_path.dentry;
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 	err = vfs_read(lower_file, buf, count, ppos);
 	/* update our inode atime upon a successful lower read */
 	if (err >= 0)
 		fsstack_copy_attr_atime(dentry->d_inode,
-					lower_file->f_path.dentry->d_inode);
+				lower_file->f_path.dentry->d_inode);
 
 	return err;
 }
 
 static ssize_t u2fs_write(struct file *file, const char __user *buf,
-			    size_t count, loff_t *ppos)
+		size_t count, loff_t *ppos)
 {
 	int err = 0;
 	struct file *lower_file;
 	struct dentry *dentry = file->f_path.dentry;
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 	err = vfs_write(lower_file, buf, count, ppos);
 	/* update our inode times+sizes upon a successful lower write */
 	if (err >= 0) {
 		fsstack_copy_inode_size(dentry->d_inode,
-					lower_file->f_path.dentry->d_inode);
+				lower_file->f_path.dentry->d_inode);
 		fsstack_copy_attr_times(dentry->d_inode,
-					lower_file->f_path.dentry->d_inode);
+				lower_file->f_path.dentry->d_inode);
 	}
 
 	return err;
@@ -53,23 +53,30 @@ static int u2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	int err = 0;
 	struct file *lower_file = NULL;
 	struct dentry *dentry = file->f_path.dentry;
+	int i = 0;
 
-	lower_file = u2fs_lower_file(file);
-	err = vfs_readdir(lower_file, filldir, dirent);
-	file->f_pos = lower_file->f_pos;
-	if (err >= 0)		/* copy the atime */
-		fsstack_copy_attr_atime(dentry->d_inode,
+	for(i = 0; i < 2; i++) {
+		lower_file = u2fs_lower_file(file, i);
+		if (!lower_file)
+			continue;
+		err = vfs_readdir(lower_file, filldir, dirent);
+		file->f_pos = lower_file->f_pos;
+		if (err >= 0)		/* copy the atime */
+			fsstack_copy_attr_atime(dentry->d_inode,
 					lower_file->f_path.dentry->d_inode);
+		else
+			break;
+	}
 	return err;
 }
 
 static long u2fs_unlocked_ioctl(struct file *file, unsigned int cmd,
-				  unsigned long arg)
+		unsigned long arg)
 {
 	long err = -ENOTTY;
 	struct file *lower_file;
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 
 	/* XXX: use vfs_ioctl if/when VFS exports it */
 	if (!lower_file || !lower_file->f_op)
@@ -83,12 +90,12 @@ out:
 
 #ifdef CONFIG_COMPAT
 static long u2fs_compat_ioctl(struct file *file, unsigned int cmd,
-				unsigned long arg)
+		unsigned long arg)
 {
 	long err = -ENOTTY;
 	struct file *lower_file;
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 
 	/* XXX: use vfs_ioctl if/when VFS exports it */
 	if (!lower_file || !lower_file->f_op)
@@ -121,11 +128,11 @@ static int u2fs_mmap(struct file *file, struct vm_area_struct *vma)
 	 * not, return EINVAL (the same error that
 	 * generic_file_readonly_mmap returns in that case).
 	 */
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 	if (willwrite && !lower_file->f_mapping->a_ops->writepage) {
 		err = -EINVAL;
 		printk(KERN_ERR "u2fs: lower file system does not "
-		       "support writeable mmap\n");
+				"support writeable mmap\n");
 		goto out;
 	}
 
@@ -165,45 +172,166 @@ out:
 	return err;
 }
 
+/*
+ * unionfs_open helper function: open a directory
+ *
+ * Taken from unionfs/commonfops.c and Modified
+ */
+static int __open_dir(struct inode *inode, struct file *file,
+		struct dentry *parent)
+{
+	struct dentry *lower_dentry;
+	struct file *lower_file;
+	int i;
+	struct vfsmount *lower_mnt;
+	struct dentry *dentry = file->f_path.dentry;
+
+	for (i = 0; i < 2; i++) {
+		lower_dentry =
+			u2fs_get_lower_dentry(dentry, i);
+		if (!lower_dentry)
+			continue;
+
+		dget(lower_dentry);
+		lower_mnt = u2fs_mntget(dentry, i);
+		if (!lower_mnt)
+			lower_mnt = u2fs_mntget(parent, i);
+		lower_file = dentry_open(lower_dentry, lower_mnt, file->f_flags,
+				current_cred());
+		if (IS_ERR(lower_file))
+			return PTR_ERR(lower_file);
+
+		u2fs_set_lower_file(file, i, lower_file);
+		if (!u2fs_get_lower_mnt(dentry, i))
+			u2fs_set_lower_mnt(dentry, i, lower_mnt);
+
+		/*
+		 * The branchget goes after the open, because otherwise
+		 * we would miss the reference on release.
+		 */
+		// branchget(inode->i_sb, i);
+		// TO_CHECK
+	}
+	return 0;
+}
+
+/*
+ * unionfs_open helper function: open a file
+ *
+ * Taken from unionfs/commonfops.c and Modified
+ */
+static int __open_file(struct inode *inode, struct file *file,
+		struct dentry *parent)
+{
+	struct dentry *lower_dentry;
+	struct file *lower_file;
+	int lower_flags;
+	struct dentry *dentry = file->f_path.dentry;
+	struct vfsmount *lower_mnt;
+	int i = 0;
+
+	for(i = 0; i < 2; i++) {
+		lower_dentry = u2fs_get_lower_dentry(dentry, i);
+		if(lower_dentry)
+			break;
+	}
+	lower_flags = file->f_flags;
+	/*
+	 * check for the permission for lower file.  If the error is
+	 * COPYUP_ERR, copyup the file.
+	 */
+	if (lower_dentry->d_inode && i) {
+		/*
+		 * if the open will change the file, copy it up otherwise
+		 * defer it.
+		 */
+		if (lower_flags & O_TRUNC) {
+			/*
+			   int size = 0;
+			   int err = -EROFS;
+			   copyup the file
+			   for (bindex = bstart - 1; bindex >= 0; bindex--) {
+			   err = copyup_file(parent->d_inode, file,
+			   bstart, bindex, size);
+			   if (!err) {
+			   only one regular file open
+			   fbend(file) = fbstart(file);
+			   break;
+			   }
+			   }
+			   return err;*/
+			// TO_CHECK
+		} else {
+			/*
+			 * turn off writeable flags, to force delayed copyup
+			 * by caller.
+			 */
+			lower_flags &= ~(OPEN_WRITE_FLAGS);
+		}
+	}
+
+	dget(lower_dentry);
+
+	/*
+	 * dentry_open will decrement mnt refcnt if err.
+	 * otherwise fput() will do an mntput() for us upon file close.
+	 */
+	lower_mnt = u2fs_mntget(dentry, i);
+	lower_file = dentry_open(lower_dentry, lower_mnt, lower_flags,
+			current_cred());
+	if (IS_ERR(lower_file))
+		return PTR_ERR(lower_file);
+
+	u2fs_set_lower_file(file, i, lower_file);
+	// branchget(inode->i_sb, bstart);
+	// TO_CHECK
+	return 0;
+}
+
+/*
+ * Modified using unionfs/commonfops.c : unionfs_open()
+ */
 static int u2fs_open(struct inode *inode, struct file *file)
 {
 	int err = 0;
-	struct file *lower_file = NULL;
-	struct path left_path;
+	struct dentry *dentry = file->f_path.dentry;
+	struct dentry *parent;
+
+	parent = u2fs_lock_parent(dentry);
 
 	/* don't open unhashed/deleted files */
-	if (d_unhashed(file->f_path.dentry)) {
+	if (d_deleted(dentry)) {
 		err = -ENOENT;
-		goto out_err;
+		goto out_nofree;
 	}
 
 	file->private_data =
 		kzalloc(sizeof(struct u2fs_file_info), GFP_KERNEL);
-	if (!U2FS_F(file)) {
+
+	if (unlikely(!U2FS_F(file))) {
 		err = -ENOMEM;
-		goto out_err;
+		goto out_nofree;
 	}
 
-	/* open lower object and link u2fs's file struct to lower's */
-	u2fs_get_left_path(file->f_path.dentry, &left_path);
-	lower_file = dentry_open(left_path.dentry, left_path.mnt,
-				 file->f_flags, current_cred());
-	if (IS_ERR(lower_file)) {
-		err = PTR_ERR(lower_file);
-		lower_file = u2fs_lower_file(file);
-		if (lower_file) {
-			u2fs_set_lower_file(file, NULL);
-			fput(lower_file); /* fput calls dput for lower_dentry */
-		}
-	} else {
-		u2fs_set_lower_file(file, lower_file);
-	}
-
-	if (err)
-		kfree(U2FS_F(file));
+	/*
+	 * open all directories and make the unionfs file struct point to
+	 * these lower file structs
+	 */
+	if (S_ISDIR(inode->i_mode))
+		err = __open_dir(inode, file, parent); /* open a dir */
 	else
+		err = __open_file(inode, file, parent);	/* open a file */
+
+	/* freeing the allocated resources, and fput the opened files */
+	if (err) {
+		u2fs_put_all_lower_files(file);
+		kfree(U2FS_F(file));
+	}
+
+out_nofree:
+	if (!err)
 		fsstack_copy_attr_all(inode, u2fs_lower_inode(inode));
-out_err:
+	u2fs_unlock_parent(dentry, parent);
 	return err;
 }
 
@@ -212,7 +340,7 @@ static int u2fs_flush(struct file *file, fl_owner_t id)
 	int err = 0;
 	struct file *lower_file = NULL;
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 	if (lower_file && lower_file->f_op && lower_file->f_op->flush)
 		err = lower_file->f_op->flush(lower_file, id);
 
@@ -222,12 +350,26 @@ static int u2fs_flush(struct file *file, fl_owner_t id)
 /* release all lower object references & free the file info structure */
 static int u2fs_file_release(struct inode *inode, struct file *file)
 {
+	struct dentry *dentry = file->f_path.dentry, *lower_dentry;
 	struct file *lower_file;
+	int i = 0;
 
-	lower_file = u2fs_lower_file(file);
-	if (lower_file) {
-		u2fs_set_lower_file(file, NULL);
-		fput(lower_file);
+	for(i = 0; i < 2; i++) {
+		lower_file = u2fs_lower_file(file, i);
+		if (lower_file) {
+			u2fs_set_lower_file(file, i, NULL);
+			fput(lower_file);
+		}
+		lower_dentry = u2fs_get_lower_dentry(dentry, i);
+		if (!lower_dentry)
+			continue;
+		if(d_deleted(lower_dentry)) {
+			dput(lower_dentry);
+			u2fs_set_lower_dentry(dentry, i, NULL);
+		}
+	}
+	if (dentry) {
+		printk("Dentry Count %d\n", dentry->d_count);
 	}
 
 	kfree(U2FS_F(file));
@@ -235,20 +377,19 @@ static int u2fs_file_release(struct inode *inode, struct file *file)
 }
 
 static int u2fs_fsync(struct file *file, loff_t start, loff_t end,
-			int datasync)
+		int datasync)
 {
 	int err;
 	struct file *lower_file;
-	struct path left_path;
+	struct path *left_path;
 	struct dentry *dentry = file->f_path.dentry;
 
 	err = generic_file_fsync(file, start, end, datasync);
 	if (err)
 		goto out;
-	lower_file = u2fs_lower_file(file);
-	u2fs_get_left_path(dentry, &left_path);
+	lower_file = u2fs_lower_file(file, 0);
+	left_path = u2fs_get_path(dentry, 0);
 	err = vfs_fsync_range(lower_file, start, end, datasync);
-	u2fs_put_path(dentry, &left_path);
 out:
 	return err;
 }
@@ -258,7 +399,7 @@ static int u2fs_fasync(int fd, struct file *file, int flag)
 	int err = 0;
 	struct file *lower_file = NULL;
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 	if (lower_file->f_op && lower_file->f_op->fasync)
 		err = lower_file->f_op->fasync(fd, lower_file, flag);
 

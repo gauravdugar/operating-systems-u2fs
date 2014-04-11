@@ -39,11 +39,10 @@ static void u2fs_put_super(struct super_block *sb)
 static int u2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	int err;
-	struct path left_path;
+	struct path *left_path;
 
-	u2fs_get_left_path(dentry, &left_path);
-	err = vfs_statfs(&left_path, buf);
-	u2fs_put_path(dentry, &left_path);
+	left_path = u2fs_get_path(dentry, 0);
+	err = vfs_statfs(left_path, buf);
 
 	/* set return buf to our f/s to avoid confusing user-level utils */
 	buf->f_type = U2FS_SUPER_MAGIC;

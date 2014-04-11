@@ -35,6 +35,9 @@
 /* useful for tracking code reachability */
 #define UDBG printk(KERN_DEFAULT "DBG:%s:%s:%d\n", __FILE__, __func__, __LINE__)
 
+#define OPEN_WRITE_FLAGS (O_WRONLY | O_RDWR | O_APPEND)
+#define IS_WRITE_FLAG(flag) ((flag) & OPEN_WRITE_FLAGS)
+
 /* operations vectors defined in specific files */
 extern const struct file_operations u2fs_main_fops;
 extern const struct file_operations u2fs_dir_fops;
@@ -53,15 +56,16 @@ extern void u2fs_destroy_dentry_cache(void);
 extern int new_dentry_private_data(struct dentry *dentry);
 extern void free_dentry_private_data(struct dentry *dentry);
 extern struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
-				    struct nameidata *nd);
+		struct nameidata *nd);
 extern struct inode *u2fs_iget(struct super_block *sb,
-				 struct inode *lower_inode);
+		struct inode *lower_inode);
 extern int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
-			    struct path *left_path);
+		struct path *left_path);
 
 /* file private data */
 struct u2fs_file_info {
-	struct file *lower_file;
+	struct file *left_file;
+	struct file *right_file;
 	const struct vm_operations_struct *lower_vm_ops;
 };
 
@@ -107,14 +111,21 @@ static inline struct u2fs_inode_info *U2FS_I(const struct inode *inode)
 #define U2FS_F(file) ((struct u2fs_file_info *)((file)->private_data))
 
 /* file to lower file */
-static inline struct file *u2fs_lower_file(const struct file *f)
+static inline struct file *u2fs_lower_file(const struct file *f, int lor)
 {
-	return U2FS_F(f)->lower_file;
+	if (lor == 0)
+		return U2FS_F(f)->left_file;
+	else
+		return U2FS_F(f)->right_file;
 }
 
-static inline void u2fs_set_lower_file(struct file *f, struct file *val)
+static inline void u2fs_set_lower_file(struct file *f,
+		struct file *val, int lor)
 {
-	U2FS_F(f)->lower_file = val;
+	if (lor == 0)
+		U2FS_F(f)->left_file = val;
+	else
+		U2FS_F(f)->right_file = val;
 }
 
 /* inode to lower inode. */
@@ -128,21 +139,33 @@ static inline void u2fs_set_lower_inode(struct inode *i, struct inode *val)
 	U2FS_I(i)->lower_inode = val;
 }
 
+static inline void u2fs_put_all_lower_files(struct file *f)
+{
+	if(U2FS_F(f)->left_file) {
+		fput(U2FS_F(f)->left_file);
+		U2FS_F(f)->left_file = NULL;
+	}
+	if(U2FS_F(f)->right_file) {
+		fput(U2FS_F(f)->right_file);
+		U2FS_F(f)->right_file = NULL;
+	}
+}
+
 /* superblock to lower superblock */
 static inline struct super_block *u2fs_lower_super(
-	const struct super_block *sb)
+		const struct super_block *sb)
 {
 	return U2FS_SB(sb)->left_sb;
 }
 
 static inline void u2fs_set_left_super(struct super_block *sb,
-					  struct super_block *val)
+		struct super_block *val)
 {
 	U2FS_SB(sb)->left_sb = val;
 }
 
 static inline void u2fs_set_right_super(struct super_block *sb,
-					  struct super_block *val)
+		struct super_block *val)
 {
 	U2FS_SB(sb)->right_sb = val;
 }
@@ -154,62 +177,110 @@ static inline void pathcpy(struct path *dst, const struct path *src)
 	dst->mnt = src->mnt;
 }
 
-/* Returns struct path.  Caller must path_put it. */
-static inline void u2fs_get_left_path(const struct dentry *dent,
-					 struct path *left_path)
+static inline struct path *u2fs_get_path(const struct dentry *dent,
+		int lor)
 {
-	spin_lock(&U2FS_D(dent)->lock);
-	pathcpy(left_path, &U2FS_D(dent)->left_path);
-	path_get(left_path);
-	spin_unlock(&U2FS_D(dent)->lock);
-	return;
+	if (lor == 0)
+		return &U2FS_D(dent)->left_path;
+	else
+		return &U2FS_D(dent)->right_path;
 }
 
 /* Valid for both left and right paths */
 static inline void u2fs_put_path(const struct dentry *dent,
-					 struct path *path)
+		struct path *path)
 {
 	path_put(path);
 	return;
 }
 
-static inline void u2fs_set_left_path(const struct dentry *dent,
-					 struct path *left_path)
+static inline void u2fs_set_path(const struct dentry *dentry,
+		struct path *path, int lor)
 {
-	spin_lock(&U2FS_D(dent)->lock);
-	pathcpy(&U2FS_D(dent)->left_path, left_path);
-	spin_unlock(&U2FS_D(dent)->lock);
+	spin_lock(&U2FS_D(dentry)->lock);
+	if (lor == 0)
+		pathcpy(&U2FS_D(dentry)->left_path, path);
+	else
+		pathcpy(&U2FS_D(dentry)->right_path, path);
+	spin_unlock(&U2FS_D(dentry)->lock);
 	return;
 }
 
-static inline void u2fs_set_right_path(const struct dentry *dent,
-					 struct path *right_path)
+static inline void u2fs_put_all_paths(const struct dentry *dent)
 {
-	spin_lock(&U2FS_D(dent)->lock);
-	pathcpy(&U2FS_D(dent)->right_path, right_path);
-	spin_unlock(&U2FS_D(dent)->lock);
+	path_put(&U2FS_D(dent)->left_path);
+	path_put(&U2FS_D(dent)->right_path);
 	return;
 }
 
-static inline void u2fs_reset_left_path(const struct dentry *dent)
+static inline void u2fs_reset_all_path(const struct dentry *dent)
 {
 	spin_lock(&U2FS_D(dent)->lock);
 	U2FS_D(dent)->left_path.dentry = NULL;
 	U2FS_D(dent)->left_path.mnt = NULL;
+	U2FS_D(dent)->right_path.dentry = NULL;
+	U2FS_D(dent)->right_path.mnt = NULL;
 	spin_unlock(&U2FS_D(dent)->lock);
 	return;
 }
 
-static inline void u2fs_put_reset_left_path(const struct dentry *dent)
+static inline void u2fs_put_reset_all_path(const struct dentry *dent)
 {
-	struct path left_path;
+	struct path path;
 	spin_lock(&U2FS_D(dent)->lock);
-	pathcpy(&left_path, &U2FS_D(dent)->left_path);
+	pathcpy(&path, &U2FS_D(dent)->right_path);
+	U2FS_D(dent)->right_path.dentry = NULL;
+	U2FS_D(dent)->right_path.mnt = NULL;
+	path_put(&path);
+	pathcpy(&path, &U2FS_D(dent)->left_path);
 	U2FS_D(dent)->left_path.dentry = NULL;
 	U2FS_D(dent)->left_path.mnt = NULL;
+	path_put(&path);
 	spin_unlock(&U2FS_D(dent)->lock);
-	path_put(&left_path);
 	return;
+}
+
+static inline struct vfsmount *u2fs_get_lower_mnt(struct dentry *dentry,
+		int lor)
+{
+	if(lor == 0)
+		return U2FS_D(dentry)->left_path.mnt;
+	else
+		return U2FS_D(dentry)->right_path.mnt;
+}
+
+static inline void u2fs_set_lower_mnt(struct dentry *dentry,
+		int lor, struct vfsmount *val)
+{
+	if(lor == 0)
+		U2FS_D(dentry)->left_path.mnt = val;
+	else
+		U2FS_D(dentry)->right_path.mnt = val;
+}
+
+static inline void u2fs_set_lower_dentry(struct dentry *dentry,
+		int lor, struct dentry *val)
+{
+	if (lor == 0)
+		U2FS_D(dentry)->left_path.dentry = val;
+	else
+		U2FS_D(dentry)->right_path.dentry = val;
+}
+
+static inline struct dentry* u2fs_get_lower_dentry(struct dentry *dentry, int lor)
+{
+	if(lor == 0)
+		return U2FS_D(dentry)->left_path.dentry;
+	else
+		return U2FS_D(dentry)->right_path.dentry;
+}
+
+static inline struct vfsmount *u2fs_mntget(struct dentry *dentry,
+		int lor)
+{
+	struct vfsmount *mnt;
+	mnt = mntget(u2fs_get_lower_mnt(dentry, lor));
+	return mnt;
 }
 
 /* locking helpers */
@@ -220,9 +291,55 @@ static inline struct dentry *lock_parent(struct dentry *dentry)
 	return dir;
 }
 
+
+/* Taken from unionfs/union.h */
+static inline struct dentry *u2fs_lock_parent(struct dentry *d)
+{
+	struct dentry *p;
+	BUG_ON(!d);
+	p = dget_parent(d);
+	return p;
+}
+
+/*
+ * The root directory is unhashed, but isn't deleted.
+ *
+ * Taken from unionfs/union.h
+ */
+static inline int d_deleted(struct dentry *d)
+{
+	return d_unhashed(d) && (d != d->d_sb->s_root);
+}
+
+static inline void u2fs_unlock_parent(struct dentry *d, struct dentry *p)
+{
+	BUG_ON(!d);
+	BUG_ON(!p);
+	dput(p);
+}
+
 static inline void unlock_dir(struct dentry *dir)
 {
 	mutex_unlock(&dir->d_inode->i_mutex);
 	dput(dir);
 }
+
+/*
+ * lock base inode mutex before calling lookup_one_len
+ *
+ * Taken from unionfs/union.h and Modified
+ */
+static inline struct dentry *lookup_lck_len(const char *name,
+		struct dentry *base, int len)
+{
+	struct dentry *d;
+	mutex_lock(&base->d_inode->i_mutex);
+	d = lookup_one_len(name, base, len);
+	mutex_unlock(&base->d_inode->i_mutex);
+	goto out;
+
+out:
+	return d;
+}
+
 #endif	/* not _U2FS_H_ */

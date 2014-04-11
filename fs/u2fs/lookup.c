@@ -11,6 +11,52 @@
 
 #include "u2fs.h"
 
+/*
+ * Lookup one path component @name relative to a <base,mnt> path pair.
+ * Behaves nearly the same as lookup_one_len (i.e., return negative dentry
+ * on ENOENT), but uses the @mnt passed, so it can cross bind mounts and
+ * other lower mounts properly.  If @new_mnt is non-null, will fill in the
+ * new mnt there.  Caller is responsible to dput/mntput/path_put returned
+ * @dentry and @new_mnt.
+ *
+ * Taken from unionfs/lookup.c
+ */
+struct dentry *__lookup_one(struct dentry *base, struct vfsmount *mnt,
+		const char *name, struct vfsmount **new_mnt)
+{
+	struct dentry *dentry = NULL;
+	struct path lower_path = {NULL, NULL};
+	int err;
+
+	/* we use flags=0 to get basic lookup */
+	err = vfs_path_lookup(base, mnt, name, 0, &lower_path);
+
+	switch (err) {
+		case 0: /* no error */
+			dentry = lower_path.dentry;
+			if (new_mnt)
+				*new_mnt = lower_path.mnt; /* rc already inc'ed */
+			break;
+		case -ENOENT:
+			/*
+			 * We don't consider ENOENT an error, and we want to return
+			 * a negative dentry (ala lookup_one_len).  As we know
+			 * there was no inode for this name before (-ENOENT), then
+			 * it's safe to call lookup_one_len (which doesn't take a
+			 * vfsmount).
+			 */
+			dentry = lookup_lck_len(name, base, strlen(name));
+			if (new_mnt)
+				*new_mnt = mntget(lower_path.mnt);
+			break;
+		default: /* all other real errors */
+			dentry = ERR_PTR(err);
+			break;
+	}
+
+	return dentry;
+}
+
 /* The dentry cache is just so we have properly sized dentries */
 static struct kmem_cache *u2fs_dentry_cachep;
 
@@ -18,8 +64,8 @@ int u2fs_init_dentry_cache(void)
 {
 	u2fs_dentry_cachep =
 		kmem_cache_create("u2fs_dentry",
-				  sizeof(struct u2fs_dentry_info),
-				  0, SLAB_RECLAIM_ACCOUNT, NULL);
+				sizeof(struct u2fs_dentry_info),
+				0, SLAB_RECLAIM_ACCOUNT, NULL);
 
 	return u2fs_dentry_cachep ? 0 : -ENOMEM;
 }
@@ -76,15 +122,15 @@ struct inode *u2fs_iget(struct super_block *sb, struct inode *lower_inode)
 	int err;
 
 	inode = iget5_locked(sb, /* our superblock */
-			     /*
-			      * hashval: we use inode number, but we can
-			      * also use "(unsigned long)lower_inode"
-			      * instead.
-			      */
-			     lower_inode->i_ino, /* hashval */
-			     u2fs_inode_test,	/* inode comparison function */
-			     u2fs_inode_set, /* inode init function */
-			     lower_inode); /* data passed to test+set fxns */
+			/*
+			 * hashval: we use inode number, but we can
+			 * also use "(unsigned long)lower_inode"
+			 * instead.
+			 */
+			lower_inode->i_ino, /* hashval */
+			u2fs_inode_test,	/* inode comparison function */
+			u2fs_inode_set, /* inode init function */
+			lower_inode); /* data passed to test+set fxns */
 	if (!inode) {
 		err = -EACCES;
 		iput(lower_inode);
@@ -131,9 +177,10 @@ struct inode *u2fs_iget(struct super_block *sb, struct inode *lower_inode)
 
 	/* properly initialize special inodes */
 	if (S_ISBLK(lower_inode->i_mode) || S_ISCHR(lower_inode->i_mode) ||
-	    S_ISFIFO(lower_inode->i_mode) || S_ISSOCK(lower_inode->i_mode))
+			S_ISFIFO(lower_inode->i_mode) ||
+			S_ISSOCK(lower_inode->i_mode))
 		init_special_inode(inode, lower_inode->i_mode,
-				   lower_inode->i_rdev);
+				lower_inode->i_rdev);
 
 	/* all well, copy inode attributes */
 	fsstack_copy_attr_all(inode, lower_inode);
@@ -152,7 +199,7 @@ struct inode *u2fs_iget(struct super_block *sb, struct inode *lower_inode)
  * @left_path: the lower path (caller does path_get/put)
  */
 int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
-		     struct path *left_path)
+		struct path *left_path)
 {
 	int err = 0;
 	struct inode *inode;
@@ -191,9 +238,10 @@ out:
  *
  * Returns: NULL (ok), ERR_PTR if an error occurred.
  * Fills in lower_parent_path with <dentry,mnt> on success.
+ *
+ * Taken from unionfs/lookup.c : unionfs_lookup_full() and Modified.
  */
-static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
-				      struct path *lower_parent_path)
+static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags)
 {
 	int err = 0;
 	struct vfsmount *lower_dir_mnt;
@@ -202,6 +250,14 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
 	const char *name;
 	struct path left_path;
 	struct qstr this;
+	struct vfsmount *lower_mnt;
+	struct dentry *parent;
+	struct dentry *valid_dentry = NULL;
+	struct path *valid_path = NULL;
+	struct path *parent_path;
+	int i = 0;
+
+	parent = dget_parent(dentry);
 
 	/* must initialize dentry operations */
 	d_set_d_op(dentry, &u2fs_dops);
@@ -211,35 +267,66 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
 
 	name = dentry->d_name.name;
 
-	/* now start the actual lookup procedure */
-	lower_dir_dentry = lower_parent_path->dentry;
-	lower_dir_mnt = lower_parent_path->mnt;
+	for(i = 0; i < 2; i++) {
+		parent_path = u2fs_get_path(parent, i);
+		/* now start the actual lookup procedure */
+		lower_dir_dentry = parent_path->dentry;
+		lower_dir_mnt = parent_path->mnt;
+		lower_mnt = NULL;
 
-	/* Use vfs_path_lookup to check if the dentry exists or not */
-	err = vfs_path_lookup(lower_dir_dentry, lower_dir_mnt, name, 0,
-			      &left_path);
+		/* if the lower dentry's parent does not exist, skip this */
+		if (!lower_dir_dentry || !lower_dir_dentry->d_inode)
+			continue;
 
-	/* no error: handle positive dentries */
-	if (!err) {
-		u2fs_set_left_path(dentry, &left_path);
-		err = u2fs_interpose(dentry, dentry->d_sb, &left_path);
-		if (err) /* path_put underlying path on error */
-			u2fs_put_reset_left_path(dentry);
-		goto out;
+		/* also skip it if the parent isn't a directory. */
+		if (!S_ISDIR(lower_dir_dentry->d_inode->i_mode))
+			continue;
+
+		lower_dentry = __lookup_one(lower_dir_dentry, lower_dir_mnt,
+				name, &lower_mnt);
+		if (IS_ERR(lower_dentry)) {
+			err = PTR_ERR(lower_dentry);
+			goto out;
+		}
+
+		u2fs_set_lower_dentry(dentry, i, lower_dentry);
+		if (!lower_mnt)
+			lower_mnt = u2fs_mntget(dentry->d_sb->s_root, i);
+		u2fs_set_lower_mnt(dentry, i, lower_mnt);
+
+		/*
+		 * We always store the lower dentries above
+		 * even if the whole u2fs dentry is negative (i.e., no lower inodes).
+		 */
+		if (!lower_dentry->d_inode)
+			continue;
+
+		fsstack_copy_attr_atime(parent->d_inode,
+				lower_dir_dentry->d_inode);
+
+		/* Check for negative dentry */
+		if(!valid_path)
+			valid_path = u2fs_get_path(lower_dentry, i);
+		if(!valid_dentry)
+			valid_dentry = lower_dentry;
 	}
 
-	/*
-	 * We don't consider ENOENT an error, and we want to return a
-	 * negative dentry.
-	 */
-	if (err && err != -ENOENT)
+	/* Handle negative dentries. */
+	if(valid_dentry) {
+		err = u2fs_interpose(dentry, dentry->d_sb, valid_path);
+		if (err)
+			u2fs_put_reset_all_path(dentry);
+		if (err && err != -ENOENT) /* Negative dentry */
+			goto out;
 		goto out;
+	}
 
 	/* instatiate a new negative dentry */
 	this.name = name;
 	this.len = strlen(name);
 	this.hash = full_name_hash(this.name, this.len);
-	lower_dentry = d_lookup(lower_dir_dentry, &this);
+	parent_path = u2fs_get_path(parent, 0);
+	lower_dentry = parent_path->dentry;
 	if (lower_dentry)
 		goto setup_lower;
 
@@ -253,7 +340,7 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags,
 setup_lower:
 	left_path.dentry = lower_dentry;
 	left_path.mnt = mntget(lower_dir_mnt);
-	u2fs_set_left_path(dentry, &left_path);
+	u2fs_set_path(dentry, &left_path, 0);
 
 	/*
 	 * If the intent is to create a file, then don't return an error, so
@@ -264,20 +351,24 @@ setup_lower:
 		err = 0;
 
 out:
+	/* Updating the access time of dir */
+	fsstack_copy_attr_atime(parent->d_inode,
+		u2fs_lower_inode(parent->d_inode));
+	/* Reference count decrement */
+	dput(parent);
 	return ERR_PTR(err);
 }
 
+/*
+ * Taken and modified from unionfs code.
+ */
 struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
-			     struct nameidata *nd)
+		struct nameidata *nd)
 {
-	struct dentry *ret, *parent;
-	struct path lower_parent_path;
+	struct dentry *ret;
 	int err = 0;
 
 	BUG_ON(!nd);
-	parent = dget_parent(dentry);
-
-	u2fs_get_left_path(parent, &lower_parent_path);
 
 	/* allocate dentry private data.  We free it in ->d_release */
 	err = new_dentry_private_data(dentry);
@@ -285,20 +376,14 @@ struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
 		ret = ERR_PTR(err);
 		goto out;
 	}
-	ret = __u2fs_lookup(dentry, nd->flags, &lower_parent_path);
+	ret = __u2fs_lookup(dentry, nd->flags);
 	if (IS_ERR(ret))
 		goto out;
 	if (ret)
 		dentry = ret;
 	if (dentry->d_inode)
 		fsstack_copy_attr_times(dentry->d_inode,
-					u2fs_lower_inode(dentry->d_inode));
-	/* update parent directory's atime */
-	fsstack_copy_attr_atime(parent->d_inode,
-				u2fs_lower_inode(parent->d_inode));
-
+				u2fs_lower_inode(dentry->d_inode));
 out:
-	u2fs_put_path(parent, &lower_parent_path);
-	dput(parent);
 	return ret;
 }

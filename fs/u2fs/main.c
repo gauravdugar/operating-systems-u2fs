@@ -59,7 +59,7 @@ int check_branch(const struct path *path)
  *
  * Taken from unionfs/main.c and modified
  */
-static int u2fs_get_path(char *name, struct path *path)
+static int u2fs_get_kern_path(char *name, struct path *path)
 {
 	int err = kern_path(name, LOOKUP_FOLLOW, path);
 	if (err) {
@@ -158,12 +158,12 @@ static struct u2fs_dentry_info *u2fs_parse_options(
 		goto out_error;
 	}
 
-	err = u2fs_get_path(ldir, &lpath);
+	err = u2fs_get_kern_path(ldir, &lpath);
 	if(err) {
 		goto out_error;
 	}
 
-	err = u2fs_get_path(rdir, &rpath);
+	err = u2fs_get_kern_path(rdir, &rpath);
 	if(err) {
 		path_put(&lpath);
 		goto out_error;
@@ -274,8 +274,8 @@ static int u2fs_read_super(struct super_block *sb, void *raw_data, int silent)
 	/* if get here: cannot have error */
 
 	/* set the lower dentries for s_root */
-	u2fs_set_left_path(sb->s_root, &(root_info->left_path));
-	u2fs_set_right_path(sb->s_root, &(root_info->right_path));
+	u2fs_set_path(sb->s_root, &(root_info->left_path), 0);
+	u2fs_set_path(sb->s_root, &(root_info->right_path), 1);
 
 	/*
 	 * No need to call interpose because we already have a positive
@@ -285,8 +285,8 @@ static int u2fs_read_super(struct super_block *sb, void *raw_data, int silent)
 	d_rehash(sb->s_root);
 	if (!silent)
 		printk(KERN_INFO
-				"u2fs: mounted on top of %s type %s\n",
-				dev_name, left_sb->s_type->name);
+				"u2fs: mounted on top of left %s\nright %s",
+				left_sb->s_type->name, right_sb->s_type->name);
 	goto out; /* all is well */
 
 	/* no longer needed: free_dentry_private_data(sb->s_root); */

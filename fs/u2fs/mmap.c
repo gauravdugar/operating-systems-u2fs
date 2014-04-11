@@ -23,7 +23,7 @@ static int u2fs_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	lower_vm_ops = U2FS_F(file)->lower_vm_ops;
 	BUG_ON(!lower_vm_ops);
 
-	lower_file = u2fs_lower_file(file);
+	lower_file = u2fs_lower_file(file, 0);
 	/*
 	 * XXX: vm_ops->fault may be called in parallel.  Because we have to
 	 * resort to temporarily changing the vma->vm_file to point to the
