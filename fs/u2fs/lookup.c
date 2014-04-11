@@ -205,15 +205,25 @@ int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
 	struct inode *inode;
 	struct inode *lower_inode;
 	struct super_block *left_sb;
-
+	printk("\n\n\n1234567890\n\n\n");
+	if(!left_path)
+		printk("\n\nleft_path is null.\n\n");
+	printk("\nleftpath\n");
+	if (!left_path->dentry)
+		printk("\n\nYOYOYOYOYOYO\n\n\n\n");
+	printk("\ndentry\n");
 	lower_inode = left_path->dentry->d_inode;
+	printk("\n\n\nasdfghjkqwertyuioasdfghjkqwertyuio\n\n\n\n");
 	left_sb = u2fs_lower_super(sb);
+	UDBG;
 
 	/* check that the lower file system didn't cross a mount point */
 	if (lower_inode->i_sb != left_sb) {
 		err = -EXDEV;
+		UDBG;
 		goto out;
 	}
+	UDBG;
 
 	/*
 	 * We allocate our new inode below by calling u2fs_iget,
@@ -222,12 +232,15 @@ int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
 
 	/* inherit lower inode number for u2fs's inode */
 	inode = u2fs_iget(sb, lower_inode);
+	UDBG;
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
+		UDBG;
 		goto out;
 	}
 
 	d_add(dentry, inode);
+	UDBG;
 
 out:
 	return err;
@@ -306,13 +319,14 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags)
 
 		/* Check for negative dentry */
 		if(!valid_path)
-			valid_path = u2fs_get_path(lower_dentry, i);
+			valid_path = u2fs_get_path(dentry, i);
 		if(!valid_dentry)
 			valid_dentry = lower_dentry;
 	}
 
 	/* Handle negative dentries. */
 	if(valid_dentry) {
+		UDBG;
 		err = u2fs_interpose(dentry, dentry->d_sb, valid_path);
 		if (err)
 			u2fs_put_reset_all_path(dentry);

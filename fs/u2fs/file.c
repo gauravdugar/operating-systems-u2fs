@@ -353,7 +353,6 @@ static int u2fs_file_release(struct inode *inode, struct file *file)
 	struct dentry *dentry = file->f_path.dentry, *lower_dentry;
 	struct file *lower_file;
 	int i = 0;
-
 	for(i = 0; i < 2; i++) {
 		lower_file = u2fs_lower_file(file, i);
 		if (lower_file) {
@@ -371,7 +370,6 @@ static int u2fs_file_release(struct inode *inode, struct file *file)
 	if (dentry) {
 		printk("Dentry Count %d\n", dentry->d_count);
 	}
-
 	kfree(U2FS_F(file));
 	return 0;
 }

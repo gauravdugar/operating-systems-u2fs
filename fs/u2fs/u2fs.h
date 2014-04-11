@@ -120,7 +120,7 @@ static inline struct file *u2fs_lower_file(const struct file *f, int lor)
 }
 
 static inline void u2fs_set_lower_file(struct file *f,
-		struct file *val, int lor)
+		int lor, struct file *val)
 {
 	if (lor == 0)
 		U2FS_F(f)->left_file = val;

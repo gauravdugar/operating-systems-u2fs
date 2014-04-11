@@ -33,7 +33,7 @@ static int u2fs_create(struct inode *dir, struct dentry *dentry,
 	pathcpy(&nd->path, &saved_path);
 	if (err)
 		goto out;
-
+	UDBG;
 	err = u2fs_interpose(dentry, dir->i_sb, left_path);
 	if (err)
 		goto out;
@@ -72,7 +72,7 @@ static int u2fs_link(struct dentry *old_dentry, struct inode *dir,
 		       lower_new_dentry);
 	if (err || !lower_new_dentry->d_inode)
 		goto out;
-
+	UDBG;
 	err = u2fs_interpose(new_dentry, dir->i_sb, lower_new_path);
 	if (err)
 		goto out;
@@ -149,6 +149,7 @@ static int u2fs_symlink(struct inode *dir, struct dentry *dentry,
 	err = vfs_symlink(lower_parent_dentry->d_inode, lower_dentry, symname);
 	if (err)
 		goto out;
+	UDBG;
 	err = u2fs_interpose(dentry, dir->i_sb, left_path);
 	if (err)
 		goto out;
@@ -246,7 +247,7 @@ static int u2fs_mknod(struct inode *dir, struct dentry *dentry, int mode,
 	err = vfs_mknod(lower_parent_dentry->d_inode, lower_dentry, mode, dev);
 	if (err)
 		goto out;
-
+	UDBG;
 	err = u2fs_interpose(dentry, dir->i_sb, left_path);
 	if (err)
 		goto out;
