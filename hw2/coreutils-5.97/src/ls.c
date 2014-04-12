@@ -280,7 +280,16 @@ char *program_name;
    mkdir loop; cd loop; ln -s ../loop sub; ls -RL  */
 static Hash_table *active_dir_set;
 
+/*
+ * U2FS
+ * Pick the files that are unique and add left dir file when
+ * it also exists in right dir
+ */
+static Hash_table *unique_files;
+
 #define LOOP_DETECT (!!active_dir_set)
+
+
 
 /* The table of files in the current directory:
 
@@ -976,9 +985,24 @@ dev_ino_compare (void const *x, void const *y)
   return SAME_INODE (*a, *b) ? true : false;
 }
 
+/*
+ * Compares file names (string compare)
+ */
+static bool
+string_compare (void const *x, void const *y)
+{
+  char const *a = x;
+  char const *b = y;
+  if(strcmp(a, b) == 0)
+  	return true;
+  else
+  	return false;
+}
+
 static void
 dev_ino_free (void *x)
 {
+  printf("\nIn free\n");
   free (x);
 }
 
@@ -1238,6 +1262,10 @@ main (int argc, char **argv)
   files = xnmalloc (nfiles, sizeof *files);
   files_index = 0;
 
+  unique_files = hash_initialize (nfiles, NULL,
+             hash_string, string_compare, dev_ino_free);
+  if (unique_files == NULL)
+    xalloc_die ();
   clear_files ();
 
   n_files = argc - i;
@@ -1349,6 +1377,12 @@ main (int argc, char **argv)
       hash_free (active_dir_set);
     }
 
+  /* free the hash table before exiting */
+  if (unique_files != NULL)
+  {
+    printf("Count = %ud \n\n", unique_files->n_entries);
+    hash_free (unique_files);
+  }
   exit (exit_status);
 }
 
@@ -2483,6 +2517,26 @@ clear_files (void)
   file_size_width = 0;
 }
 
+/*
+ * Function to check if the absolute path name already exists in hash table
+ */
+static bool file_exists(char *absolute_name)
+{
+  /*
+   * We have to make a copy of absolute_name as the alloca function
+   * frees the memory. It can be used by other data from hash table.
+   */
+   char *filename = malloc (sizeof(char) * strlen(absolute_name));
+   char * hash_entry = NULL;
+   if(filename == NULL)
+     xalloc_die();
+   strcpy (filename, absolute_name);
+   hash_entry = hash_insert (unique_files, filename);
+   if (filename == hash_entry)
+   	return false;
+   return true;
+}
+
 /* Add a file to the current table of files.
    Verify that the file exists, and print an error message if it does not.
    Return the number of blocks that the file occupies.  */
@@ -2493,6 +2547,21 @@ gobble_file (char const *name, enum filetype type, bool command_line_arg,
 {
   uintmax_t blocks;
   struct fileinfo *f;
+
+  /* Absolute name of this file.  */
+  char *absolute_name;
+  int err;
+
+  if (name[0] == '/' || dirname[0] == 0)
+    absolute_name = (char *) name;
+  else
+  {
+    absolute_name = alloca (strlen (name) + strlen (dirname) + 2);
+    attach (absolute_name, dirname, name);
+  }
+
+  if (file_exists(absolute_name))
+    return 0;
 
   if (files_index == nfiles)
     {
@@ -2528,18 +2597,6 @@ gobble_file (char const *name, enum filetype type, bool command_line_arg,
 				     )))))
 
     {
-      /* Absolute name of this file.  */
-      char *absolute_name;
-
-      int err;
-
-      if (name[0] == '/' || dirname[0] == 0)
-	absolute_name = (char *) name;
-      else
-	{
-	  absolute_name = alloca (strlen (name) + strlen (dirname) + 2);
-	  attach (absolute_name, dirname, name);
-	}
 
       switch (dereference)
 	{
