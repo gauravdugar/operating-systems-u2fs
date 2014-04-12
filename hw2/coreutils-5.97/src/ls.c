@@ -1380,7 +1380,6 @@ main (int argc, char **argv)
   /* free the hash table before exiting */
   if (unique_files != NULL)
   {
-    printf("Count = %ud \n\n", unique_files->n_entries);
     hash_free (unique_files);
   }
   exit (exit_status);
