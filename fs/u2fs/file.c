@@ -41,11 +41,22 @@ static ssize_t u2fs_write(struct file *file, const char __user *buf,
 		size_t count, loff_t *ppos)
 {
 	int err = 0;
-	struct file *lower_file;
+	struct file *lower_file = NULL;
+	struct dentry *lower_dentry;
 	struct dentry *dentry = file->f_path.dentry;
+	int i = 0;
 
-	lower_file = u2fs_lower_file(file, 0);
-	err = vfs_write(lower_file, buf, count, ppos);
+	for(i = 0; i< 2; i++) {
+		lower_dentry = u2fs_get_lower_dentry(dentry, i);
+		if(!lower_dentry)
+			continue;
+		if(!lower_dentry->d_inode)
+			continue;
+		lower_file = u2fs_lower_file(file, i);
+		err = vfs_write(lower_file, buf, count, ppos);
+		break;
+	}
+
 	/* update our inode times+sizes upon a successful lower write */
 	if (err >= 0) {
 		fsstack_copy_inode_size(dentry->d_inode,
@@ -53,7 +64,7 @@ static ssize_t u2fs_write(struct file *file, const char __user *buf,
 		fsstack_copy_attr_times(dentry->d_inode,
 				lower_file->f_path.dentry->d_inode);
 	}
-
+	U2FS_F(file)->wrote_to_file = true; /* for delayed copyup (unionfs)*/
 	return err;
 }
 
@@ -281,6 +292,8 @@ static int __open_file(struct inode *inode, struct file *file,
 			   }
 			   return err;*/
 			// TO_CHECK
+			UDBG;
+			return -EPERM;
 		} else {
 			/*
 			 * turn off writeable flags, to force delayed copyup

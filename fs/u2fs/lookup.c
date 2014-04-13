@@ -198,8 +198,7 @@ struct inode *u2fs_iget(struct super_block *sb, struct inode *lower_inode)
  * @sb: u2fs's super_block
  * @left_path: the lower path (caller does path_get/put)
  */
-int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
-		struct path *left_path)
+int u2fs_interpose(struct dentry *dentry, struct super_block *sb)
 {
 	int err = 0;
 	struct inode *inode;
@@ -215,6 +214,7 @@ int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
 		if (lower_dentry->d_inode == NULL)
 			continue;
 		lower_inode = lower_dentry->d_inode;
+		break;
 	}
 	left_sb = u2fs_lower_super(sb);
 
@@ -260,10 +260,10 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags)
 	struct qstr this;
 	struct vfsmount *lower_mnt;
 	struct dentry *parent;
-	struct dentry *valid_dentry = NULL;
-	struct path *valid_path = NULL;
 	struct path *parent_path;
 	int i = 0;
+	struct dentry *wh_dentry = NULL;
+	bool valid = false;
 
 	parent = dget_parent(dentry);
 
@@ -290,6 +290,21 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags)
 		if (!S_ISDIR(lower_dir_dentry->d_inode->i_mode))
 			continue;
 
+		/* Checking Whiteout */
+		if(i == 0) {
+			wh_dentry = lookup_whiteout(name, lower_dir_dentry);
+			if (IS_ERR(wh_dentry)) {
+				err = PTR_ERR(wh_dentry);
+				u2fs_put_reset_all_path(dentry);
+				goto out;
+			}
+			if (wh_dentry->d_inode) {
+				dput(wh_dentry);
+				break;
+			}
+			dput(wh_dentry);
+		}
+
 		lower_dentry = __lookup_one(lower_dir_dentry, lower_dir_mnt,
 				name, &lower_mnt);
 		if (IS_ERR(lower_dentry)) {
@@ -308,26 +323,20 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags)
 		 */
 		if (!lower_dentry->d_inode)
 			continue;
-
-		fsstack_copy_attr_atime(parent->d_inode,
-				lower_dir_dentry->d_inode);
-
-		/* Check for negative dentry */
-		if(!valid_path)
-			valid_path = u2fs_get_path(dentry, i);
-		// TO_CHECK
-		if(!valid_dentry)
-			valid_dentry = lower_dentry;
+		valid = true;
 	}
 
 	/* Handle negative dentries. */
-	if(valid_dentry) {
+	if(valid) {
 		UDBG;
-		err = u2fs_interpose(dentry, dentry->d_sb, valid_path);
+		err = u2fs_interpose(dentry, dentry->d_sb);
+		UDBG;
 		if (err)
 			u2fs_put_reset_all_path(dentry);
+		UDBG;
 		if (err && err != -ENOENT) /* Negative dentry */
 			goto out;
+		UDBG;
 		goto out;
 	}
 
@@ -367,7 +376,9 @@ out:
 	fsstack_copy_attr_atime(parent->d_inode,
 		u2fs_lower_inode(parent->d_inode));
 	/* Reference count decrement */
+	UDBG;
 	dput(parent);
+	UDBG;
 	return ERR_PTR(err);
 }
 

@@ -12,7 +12,7 @@
 #include "u2fs.h"
 
 static int u2fs_create(struct inode *dir, struct dentry *dentry,
-			 int mode, struct nameidata *nd)
+		int mode, struct nameidata *nd)
 {
 	int err = 0;
 	struct dentry *lower_dentry;
@@ -34,7 +34,7 @@ static int u2fs_create(struct inode *dir, struct dentry *dentry,
 	if (err)
 		goto out;
 	UDBG;
-	err = u2fs_interpose(dentry, dir->i_sb, left_path);
+	err = u2fs_interpose(dentry, dir->i_sb);
 	if (err)
 		goto out;
 	fsstack_copy_attr_times(dir, u2fs_lower_inode(dir));
@@ -48,7 +48,7 @@ out_unlock:
 }
 
 static int u2fs_link(struct dentry *old_dentry, struct inode *dir,
-		       struct dentry *new_dentry)
+		struct dentry *new_dentry)
 {
 	struct dentry *lower_old_dentry;
 	struct dentry *lower_new_dentry;
@@ -69,17 +69,17 @@ static int u2fs_link(struct dentry *old_dentry, struct inode *dir,
 		goto out_unlock;
 
 	err = vfs_link(lower_old_dentry, lower_dir_dentry->d_inode,
-		       lower_new_dentry);
+			lower_new_dentry);
 	if (err || !lower_new_dentry->d_inode)
 		goto out;
 	UDBG;
-	err = u2fs_interpose(new_dentry, dir->i_sb, lower_new_path);
+	err = u2fs_interpose(new_dentry, dir->i_sb);
 	if (err)
 		goto out;
 	fsstack_copy_attr_times(dir, lower_new_dentry->d_inode);
 	fsstack_copy_inode_size(dir, lower_new_dentry->d_inode);
 	set_nlink(old_dentry->d_inode,
-		  u2fs_lower_inode(old_dentry->d_inode)->i_nlink);
+			u2fs_lower_inode(old_dentry->d_inode)->i_nlink);
 	i_size_write(new_dentry->d_inode, file_size_save);
 out:
 	mnt_drop_write(lower_new_path->mnt);
@@ -92,47 +92,83 @@ static int u2fs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	int err;
 	struct dentry *lower_dentry;
-	struct inode *lower_dir_inode = u2fs_lower_inode(dir);
 	struct dentry *lower_dir_dentry;
-	struct path *left_path;
+	struct vfsmount *mount = NULL;
+	bool right = false, left = false;
+	int i = 0;
+	struct dentry *parent;
 
-	left_path = u2fs_get_path(dentry, 0);
-	lower_dentry = left_path->dentry;
+	parent = u2fs_lock_parent(dentry);
+
+	UDBG;
+	for(i = 1; i >= 0; i++) {
+		lower_dentry = u2fs_get_lower_dentry(dentry, i);
+		mount = u2fs_get_lower_mnt(dentry, i);
+		if(lower_dentry && lower_dentry->d_inode) {
+			if(i == 1)
+				right = true;
+			if(i == 0)
+				left = true;
+		}
+	}
+
+	UDBG;
+	if(!lower_dentry || !lower_dentry->d_inode) {
+		u2fs_unlock_parent(dentry, parent);
+		return -ENOENT;
+	}
+
+	UDBG;
 	dget(lower_dentry);
-	lower_dir_dentry = lock_parent(lower_dentry);
+	UDBG;
 
-	err = mnt_want_write(left_path->mnt);
+	if(left)
+		printk("\n\n left \n\n");
+	if(right)
+		printk("\n\n right \n\n");
+
+	UDBG;
+	if (left)
+		lower_dir_dentry = u2fs_get_lower_dentry(parent, 0);
+	else
+		lower_dir_dentry = u2fs_get_lower_dentry(parent, 1);
+
+	UDBG;
+	err = mnt_want_write(mount);
 	if (err)
 		goto out_unlock;
-	err = vfs_unlink(lower_dir_inode, lower_dentry);
 
-	/*
-	 * Note: unlinking on top of NFS can cause silly-renamed files.
-	 * Trying to delete such files results in EBUSY from NFS
-	 * below.  Silly-renamed files will get deleted by NFS later on, so
-	 * we just need to detect them here and treat such EBUSY errors as
-	 * if the upper file was successfully deleted.
-	 */
-	if (err == -EBUSY && lower_dentry->d_flags & DCACHE_NFSFS_RENAMED)
-		err = 0;
+	UDBG;
+	if(left) {
+		if(S_ISDIR(lower_dentry->d_inode->i_mode))
+			err = vfs_rmdir(lower_dir_dentry->d_inode, lower_dentry);
+		else
+			err = vfs_unlink(lower_dir_dentry->d_inode, lower_dentry);
+	}
+
+	UDBG;
 	if (err)
 		goto out;
-	fsstack_copy_attr_times(dir, lower_dir_inode);
-	fsstack_copy_inode_size(dir, lower_dir_inode);
-	set_nlink(dentry->d_inode,
-		  u2fs_lower_inode(dentry->d_inode)->i_nlink);
-	dentry->d_inode->i_ctime = dir->i_ctime;
+	if (right)
+		err = create_whiteout(dentry);
+	if (err == 0)
+		inode_dec_link_count(dentry->d_inode);
+
+	UDBG;
 	d_drop(dentry); /* this is needed, else LTP fails (VFS won't do it) */
+
 out:
-	mnt_drop_write(left_path->mnt);
+	mnt_drop_write(mount);
+
 out_unlock:
 	unlock_dir(lower_dir_dentry);
 	dput(lower_dentry);
+	u2fs_unlock_parent(parent, dentry);
 	return err;
 }
 
 static int u2fs_symlink(struct inode *dir, struct dentry *dentry,
-			  const char *symname)
+		const char *symname)
 {
 	int err = 0;
 	struct dentry *lower_dentry;
@@ -150,7 +186,7 @@ static int u2fs_symlink(struct inode *dir, struct dentry *dentry,
 	if (err)
 		goto out;
 	UDBG;
-	err = u2fs_interpose(dentry, dir->i_sb, left_path);
+	err = u2fs_interpose(dentry, dir->i_sb);
 	if (err)
 		goto out;
 	fsstack_copy_attr_times(dir, u2fs_lower_inode(dir));
@@ -181,7 +217,7 @@ static int u2fs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	if (err)
 		goto out;
 
-	err = u2fs_interpose(dentry, dir->i_sb, left_path);
+	err = u2fs_interpose(dentry, dir->i_sb);
 	if (err)
 		goto out;
 
@@ -230,7 +266,7 @@ out_unlock:
 }
 
 static int u2fs_mknod(struct inode *dir, struct dentry *dentry, int mode,
-			dev_t dev)
+		dev_t dev)
 {
 	int err = 0;
 	struct dentry *lower_dentry;
@@ -248,7 +284,7 @@ static int u2fs_mknod(struct inode *dir, struct dentry *dentry, int mode,
 	if (err)
 		goto out;
 	UDBG;
-	err = u2fs_interpose(dentry, dir->i_sb, left_path);
+	err = u2fs_interpose(dentry, dir->i_sb);
 	if (err)
 		goto out;
 	fsstack_copy_attr_times(dir, u2fs_lower_inode(dir));
@@ -266,7 +302,7 @@ out_unlock:
  * superblock-level name-space lock for renames and copy-ups.
  */
 static int u2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
-			 struct inode *new_dir, struct dentry *new_dentry)
+		struct inode *new_dir, struct dentry *new_dentry)
 {
 	int err = 0;
 	struct dentry *lower_old_dentry = NULL;
@@ -303,7 +339,7 @@ static int u2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		goto out_drop_old_write;
 
 	err = vfs_rename(lower_old_dir_dentry->d_inode, lower_old_dentry,
-			 lower_new_dir_dentry->d_inode, lower_new_dentry);
+			lower_new_dir_dentry->d_inode, lower_new_dentry);
 	if (err)
 		goto out_err;
 
@@ -311,9 +347,9 @@ static int u2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	fsstack_copy_inode_size(new_dir, lower_new_dir_dentry->d_inode);
 	if (new_dir != old_dir) {
 		fsstack_copy_attr_all(old_dir,
-				      lower_old_dir_dentry->d_inode);
+				lower_old_dir_dentry->d_inode);
 		fsstack_copy_inode_size(old_dir,
-					lower_old_dir_dentry->d_inode);
+				lower_old_dir_dentry->d_inode);
 	}
 
 out_err:
@@ -336,13 +372,13 @@ static int u2fs_readlink(struct dentry *dentry, char __user *buf, int bufsiz)
 	left_path = u2fs_get_path(dentry, 0);
 	lower_dentry = left_path->dentry;
 	if (!lower_dentry->d_inode->i_op ||
-	    !lower_dentry->d_inode->i_op->readlink) {
+			!lower_dentry->d_inode->i_op->readlink) {
 		err = -EINVAL;
 		goto out;
 	}
 
 	err = lower_dentry->d_inode->i_op->readlink(lower_dentry,
-						    buf, bufsiz);
+			buf, bufsiz);
 	if (err < 0)
 		goto out;
 	fsstack_copy_attr_atime(dentry->d_inode, lower_dentry->d_inode);
@@ -382,7 +418,7 @@ out:
 
 /* this @nd *IS* still used */
 static void u2fs_put_link(struct dentry *dentry, struct nameidata *nd,
-			    void *cookie)
+		void *cookie)
 {
 	char *buf = nd_get_link(nd);
 	if (!IS_ERR(buf))	/* free the char* */
@@ -405,7 +441,7 @@ static int u2fs_setattr(struct dentry *dentry, struct iattr *ia)
 	struct dentry *lower_dentry;
 	struct inode *inode;
 	struct inode *lower_inode;
-	struct path *left_path;
+	// struct path *left_path;
 	struct iattr lower_ia;
 
 	inode = dentry->d_inode;
@@ -419,9 +455,13 @@ static int u2fs_setattr(struct dentry *dentry, struct iattr *ia)
 	if (err)
 		goto out_err;
 
-	left_path = u2fs_get_path(dentry, 0);
-	lower_dentry = left_path->dentry;
-	lower_inode = u2fs_lower_inode(inode);
+	lower_dentry = u2fs_get_lower_dentry(dentry, 0);
+
+	if(!lower_dentry || !lower_dentry->d_inode) {
+		err = -EPERM;
+		goto out_err;
+	}
+	lower_inode = lower_dentry->d_inode;
 
 	/* prepare our own lower struct iattr (with the lower file) */
 	memcpy(&lower_ia, ia, sizeof(lower_ia));

@@ -39,6 +39,10 @@
 #define IS_WRITE_FLAG(flag) ((flag) & OPEN_WRITE_FLAGS)
 
 /* operations vectors defined in specific files */
+extern struct dentry *lookup_whiteout(const char *name,
+			struct dentry *lower_parent);
+extern int create_whiteout(struct dentry *dentry);
+
 extern const struct file_operations u2fs_main_fops;
 extern const struct file_operations u2fs_dir_fops;
 extern const struct inode_operations u2fs_main_iops;
@@ -59,14 +63,14 @@ extern struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
 		struct nameidata *nd);
 extern struct inode *u2fs_iget(struct super_block *sb,
 		struct inode *lower_inode);
-extern int u2fs_interpose(struct dentry *dentry, struct super_block *sb,
-		struct path *left_path);
+extern int u2fs_interpose(struct dentry *dentry, struct super_block *sb);
 
 /* file private data */
 struct u2fs_file_info {
 	struct file *left_file;
 	struct file *right_file;
 	const struct vm_operations_struct *lower_vm_ops;
+	bool wrote_to_file;
 };
 
 /* u2fs inode data in memory */
