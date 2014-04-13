@@ -104,7 +104,7 @@ static struct u2fs_dentry_info *u2fs_parse_options(
 		kzalloc(sizeof(struct u2fs_dentry_info), GFP_KERNEL);
 	if (unlikely(!root_info))
 		goto out_error;
-	printk("arg: %s",options);
+	printk("arg: %s", options);
 	while ((optname = strsep(&options, ",")) != NULL) {
 		char *optarg;
 
@@ -159,12 +159,11 @@ static struct u2fs_dentry_info *u2fs_parse_options(
 	}
 
 	err = u2fs_get_kern_path(ldir, &lpath);
-	if(err) {
+	if (err)
 		goto out_error;
-	}
 
 	err = u2fs_get_kern_path(rdir, &rpath);
-	if(err) {
+	if (err) {
 		path_put(&lpath);
 		goto out_error;
 	}
@@ -228,7 +227,7 @@ static int u2fs_read_super(struct super_block *sb, void *raw_data, int silent)
 	if (!U2FS_SB(sb)) {
 		printk(KERN_CRIT "u2fs: read_super: out of memory\n");
 		err = -ENOMEM;
-		goto out;	//TO_CHECK
+		goto out;
 	}
 
 	/* set the lower superblock field of left superblock */
@@ -256,7 +255,7 @@ static int u2fs_read_super(struct super_block *sb, void *raw_data, int silent)
 	inode = u2fs_iget(sb, root_info->left_path.dentry->d_inode);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
-		goto out_pput;	// TO_CHECK
+		goto out_pput;
 	}
 	sb->s_root = d_alloc_root(inode);
 	if (!sb->s_root) {
@@ -297,7 +296,7 @@ out_iput:
 out_sput:
 	kfree(U2FS_SB(sb));
 	sb->s_fs_info = NULL;
-out_pput:	// TO_CHECK
+out_pput:
 	atomic_dec(&left_sb->s_active);
 	atomic_dec(&right_sb->s_active);
 	path_put(&(root_info->left_path));
@@ -313,7 +312,7 @@ static struct dentry *u2fs_mount(struct file_system_type *fs_type,
 	struct dentry *dentry;
 
 	dentry = mount_nodev(fs_type, flags, raw_data, u2fs_read_super);
-	printk("iaddr: %p",dentry);
+	printk("iaddr: %p", dentry);
 	if (!IS_ERR(dentry)) {
 		printk("dev_name : %s", dev_name);
 		U2FS_SB(dentry->d_sb)->dev_name =
@@ -358,6 +357,7 @@ static void __exit exit_u2fs_fs(void)
 {
 	u2fs_destroy_inode_cache();
 	u2fs_destroy_dentry_cache();
+	u2fs_destroy_filldir_cache();
 	unregister_filesystem(&u2fs_fs_type);
 	pr_info("Completed u2fs module unload\n");
 }

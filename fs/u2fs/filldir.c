@@ -1,5 +1,6 @@
 /* This file contains ths file has functions copied from readstat.c
- * It has functions to support u2fs_filldir() in file.c routines for maintaining readdir state.
+ * It has functions to support u2fs_filldir() in file.c routines for
+ * maintaining readdir state.
  */
 #include "u2fs.h"
 
@@ -12,7 +13,9 @@ int u2fs_init_filldir_cache(void)
 				sizeof(struct filldir_node), 0,
 				SLAB_RECLAIM_ACCOUNT, NULL);
 
-	return (u2fs_filldir_cachep ? 0 : -ENOMEM);
+	if (u2fs_filldir_cachep)
+		return 0;
+	return -ENOMEM;
 }
 
 void u2fs_destroy_filldir_cache(void)

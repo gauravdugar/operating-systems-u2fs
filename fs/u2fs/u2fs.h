@@ -41,7 +41,8 @@
 /* Start size for list as 50 */
 #define START_FILLDIR_SIZE      50
 
-extern int check_unlink_whiteout(struct dentry *dentry, struct dentry *lower_dentry);
+extern int check_unlink_whiteout(struct dentry *dentry,
+				struct dentry *lower_dentry);
 /* operations vectors defined in specific files */
 extern struct dentry *lookup_whiteout(const char *name,
 		struct dentry *lower_parent);
@@ -184,11 +185,11 @@ static inline void u2fs_set_lower_inode(struct inode *i, struct inode *val)
 
 static inline void u2fs_put_all_lower_files(struct file *f)
 {
-	if(U2FS_F(f)->left_file) {
+	if (U2FS_F(f)->left_file) {
 		fput(U2FS_F(f)->left_file);
 		U2FS_F(f)->left_file = NULL;
 	}
-	if(U2FS_F(f)->right_file) {
+	if (U2FS_F(f)->right_file) {
 		fput(U2FS_F(f)->right_file);
 		U2FS_F(f)->right_file = NULL;
 	}
@@ -286,7 +287,7 @@ static inline void u2fs_put_reset_all_path(const struct dentry *dent)
 static inline struct vfsmount *u2fs_get_lower_mnt(struct dentry *dentry,
 		int lor)
 {
-	if(lor == 0)
+	if (lor == 0)
 		return U2FS_D(dentry)->left_path.mnt;
 	else
 		return U2FS_D(dentry)->right_path.mnt;
@@ -295,7 +296,7 @@ static inline struct vfsmount *u2fs_get_lower_mnt(struct dentry *dentry,
 static inline void u2fs_set_lower_mnt(struct dentry *dentry,
 		int lor, struct vfsmount *val)
 {
-	if(lor == 0)
+	if (lor == 0)
 		U2FS_D(dentry)->left_path.mnt = val;
 	else
 		U2FS_D(dentry)->right_path.mnt = val;
@@ -310,9 +311,10 @@ static inline void u2fs_set_lower_dentry(struct dentry *dentry,
 		U2FS_D(dentry)->right_path.dentry = val;
 }
 
-static inline struct dentry* u2fs_get_lower_dentry(struct dentry *dentry, int lor)
+static inline struct dentry *u2fs_get_lower_dentry(
+			struct dentry *dentry, int lor)
 {
-	if(lor == 0)
+	if (lor == 0)
 		return U2FS_D(dentry)->left_path.dentry;
 	else
 		return U2FS_D(dentry)->right_path.dentry;

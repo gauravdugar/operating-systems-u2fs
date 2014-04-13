@@ -25,10 +25,10 @@ static int u2fs_d_revalidate(struct dentry *dentry, struct nameidata *nd)
 
 	if (nd && nd->flags & LOOKUP_RCU)
 		return -ECHILD;
-	for(i = 0; i < 2; i++) {
+	for (i = 0; i < 2; i++) {
 		path = u2fs_get_path(dentry, i);
 		lower_dentry = path->dentry;
-		if(!lower_dentry)
+		if (!lower_dentry)
 			continue;
 	}
 

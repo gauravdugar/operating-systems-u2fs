@@ -276,7 +276,6 @@ int create_whiteout(struct dentry *dentry)
 		 * only want the parent dentry, and hence get rid of
 		 * this dentry.
 		 */
-		 // CREATE DIR STRUCTURE
 	}
 
 	lower_wh_dentry =
