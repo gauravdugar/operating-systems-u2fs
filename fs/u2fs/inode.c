@@ -71,9 +71,20 @@ static int u2fs_link(struct dentry *old_dentry, struct inode *dir,
 
 	file_size_save = i_size_read(old_dentry->d_inode);
 	lower_old_path = u2fs_get_path(old_dentry, 0);
+	if(!lower_old_path || !lower_old_path->dentry ||
+			!lower_old_path->dentry->d_inode)
+		lower_old_path = u2fs_get_path(old_dentry, 1);
+	if(!lower_old_path || !lower_old_path->dentry ||
+			!lower_old_path->dentry->d_inode)
+		return -ENOENT;
 	lower_new_path = u2fs_get_path(new_dentry, 0);
+
 	lower_old_dentry = lower_old_path->dentry;
 	lower_new_dentry = lower_new_path->dentry;
+
+	if (!lower_new_dentry->d_parent->d_inode)
+		return -EPERM;
+
 	lower_dir_dentry = lock_parent(lower_new_dentry);
 
 	err = mnt_want_write(lower_new_path->mnt);
@@ -190,29 +201,37 @@ static int u2fs_symlink(struct inode *dir, struct dentry *dentry,
 	int err = 0;
 	struct dentry *lower_dentry;
 	struct dentry *lower_parent_dentry = NULL;
-	struct path *left_path;
+	//struct path *left_path;
 
-	left_path = u2fs_get_path(dentry, 0);
-	lower_dentry = left_path->dentry;
+	lower_dentry = u2fs_get_lower_dentry(dentry, 0);
+
+	if (lower_dentry->d_parent->d_inode)
+		err = check_unlink_whiteout(dentry, lower_dentry);
+	if (err > 0)    /* ignore if whiteout found and removed */
+		err = 0;
+	if (err && err != -EROFS)
+		goto out;
+
+	if (!lower_dentry->d_parent->d_inode)
+		return -ENOENT;
+
 	lower_parent_dentry = lock_parent(lower_dentry);
 
-	err = mnt_want_write(left_path->mnt);
-	if (err)
+	if (IS_ERR(lower_parent_dentry)) {
+		err = PTR_ERR(lower_parent_dentry);
 		goto out_unlock;
+	}
 	err = vfs_symlink(lower_parent_dentry->d_inode, lower_dentry, symname);
-	if (err)
-		goto out;
-	UDBG;
 	err = u2fs_interpose(dentry, dir->i_sb);
 	if (err)
-		goto out;
+		goto out_unlock;
 	fsstack_copy_attr_times(dir, u2fs_lower_inode(dir));
 	fsstack_copy_inode_size(dir, lower_parent_dentry->d_inode);
+	set_nlink(dir, u2fs_lower_inode(dir)->i_nlink);
 
-out:
-	mnt_drop_write(left_path->mnt);
 out_unlock:
 	unlock_dir(lower_parent_dentry);
+out:
 	return err;
 }
 
@@ -255,38 +274,38 @@ out_unlock:
 }
 
 /*
-static int u2fs_rmdir(struct inode *dir, struct dentry *dentry)
-{
-	struct dentry *lower_dentry;
-	struct dentry *lower_dir_dentry;
-	int err;
-	struct path *left_path;
+   static int u2fs_rmdir(struct inode *dir, struct dentry *dentry)
+   {
+   struct dentry *lower_dentry;
+   struct dentry *lower_dir_dentry;
+   int err;
+   struct path *left_path;
 
-	left_path = u2fs_get_path(dentry, 0);
-	lower_dentry = left_path->dentry;
-	lower_dir_dentry = lock_parent(lower_dentry);
+   left_path = u2fs_get_path(dentry, 0);
+   lower_dentry = left_path->dentry;
+   lower_dir_dentry = lock_parent(lower_dentry);
 
-	err = mnt_want_write(left_path->mnt);
-	if (err)
-		goto out_unlock;
-	err = vfs_rmdir(lower_dir_dentry->d_inode, lower_dentry);
-	if (err)
-		goto out;
+   err = mnt_want_write(left_path->mnt);
+   if (err)
+   goto out_unlock;
+   err = vfs_rmdir(lower_dir_dentry->d_inode, lower_dentry);
+   if (err)
+   goto out;
 
-	d_drop(dentry);	// drop our dentry on success (why not VFS's job?)
-	if (dentry->d_inode)
-		clear_nlink(dentry->d_inode);
-	fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
-	fsstack_copy_inode_size(dir, lower_dir_dentry->d_inode);
-	set_nlink(dir, lower_dir_dentry->d_inode->i_nlink);
+   d_drop(dentry);	// drop our dentry on success (why not VFS's job?)
+   if (dentry->d_inode)
+   clear_nlink(dentry->d_inode);
+   fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
+   fsstack_copy_inode_size(dir, lower_dir_dentry->d_inode);
+   set_nlink(dir, lower_dir_dentry->d_inode->i_nlink);
 
 out:
-	mnt_drop_write(left_path->mnt);
+mnt_drop_write(left_path->mnt);
 out_unlock:
-	unlock_dir(lower_dir_dentry);
-	return err;
+unlock_dir(lower_dir_dentry);
+return err;
 }
-*/
+ */
 
 static int u2fs_mknod(struct inode *dir, struct dentry *dentry, int mode,
 		dev_t dev)
