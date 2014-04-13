@@ -106,7 +106,6 @@ int add_filldir_node(struct list_head *heads, const char *name,
 	index = hash % size;
 	head = &(heads[index]);
 
-	UDBG;
 	new = kmem_cache_alloc(u2fs_filldir_cachep, GFP_KERNEL);
 	if (unlikely(!new)) {
 		err = -ENOMEM;
@@ -114,16 +113,13 @@ int add_filldir_node(struct list_head *heads, const char *name,
 	}
 
 	INIT_LIST_HEAD(&new->file_list);
-	UDBG;
 	new->namelen = namelen;
 	new->hash = hash;
 	new->whiteout = whiteout;
 
 	if (namelen < DNAME_INLINE_LEN) {
-		UDBG;
 		new->name = new->iname;
 	} else {
-		UDBG;
 		new->name = kmalloc(namelen + 1, GFP_KERNEL);
 		if (unlikely(!new->name)) {
 			kmem_cache_free(u2fs_filldir_cachep, new);
@@ -132,13 +128,9 @@ int add_filldir_node(struct list_head *heads, const char *name,
 		}
 	}
 
-	UDBG;
 	memcpy(new->name, name, namelen);
-	UDBG;
 	new->name[namelen] = '\0';
-	UDBG;
 	list_add(&(new->file_list), head);
-	UDBG;
 out:
 	return err;
 }

@@ -262,34 +262,26 @@ static int __open_dir(struct inode *inode, struct file *file,
 	int i;
 	struct vfsmount *lower_mnt;
 	struct dentry *dentry = file->f_path.dentry;
-	UDBG;
 	for (i = 0; i < 2; i++) {
 		lower_dentry =
 			u2fs_get_lower_dentry(dentry, i);
-		UDBG;
 		if (!lower_dentry)
 			continue;
 		if (!lower_dentry->d_inode)
 			continue;
-		UDBG;
 		dget(lower_dentry);
-		UDBG;
 		lower_mnt = u2fs_mntget(dentry, i);
-		UDBG;
 		if (!lower_mnt)
 			lower_mnt = u2fs_mntget(parent, i);
 		lower_file = dentry_open(lower_dentry, lower_mnt, file->f_flags,
 				current_cred());
-		UDBG;
 		if (IS_ERR(lower_file))
 			return PTR_ERR(lower_file);
 
-		UDBG;
 		u2fs_set_lower_file(file, i, lower_file);
 		if (!u2fs_get_lower_mnt(dentry, i))
 			u2fs_set_lower_mnt(dentry, i, lower_mnt);
 
-		UDBG;
 		/*
 		 * The branchget goes after the open, because otherwise
 		 * we would miss the reference on release.
@@ -312,16 +304,12 @@ static int __open_file(struct inode *inode, struct file *file,
 	struct dentry *dentry = file->f_path.dentry;
 	struct vfsmount *lower_mnt;
 	int i = 0;
-	UDBG;
 	for (i = 0; i < 2; i++) {
-		UDBG;
 		lower_dentry = u2fs_get_lower_dentry(dentry, i);
 		if (!(!lower_dentry || !lower_dentry->d_inode))
 			break;
 	}
-	UDBG;
 	lower_flags = file->f_flags;
-	UDBG;
 	/*
 	 * check for the permission for lower file.  If the error is
 	 * COPYUP_ERR, copyup the file.

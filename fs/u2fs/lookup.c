@@ -328,54 +328,40 @@ static struct dentry *__u2fs_lookup(struct dentry *dentry, int flags)
 
 	/* Handle negative dentries. */
 	if (valid) {
-		UDBG;
 		err = u2fs_interpose(dentry, dentry->d_sb);
-		UDBG;
 		if (err)
 			u2fs_put_reset_all_path(dentry);
-		UDBG;
 		if (err && err != -ENOENT) /* Negative dentry */
 			goto out;
-		UDBG;
 		goto out;
 	}
 
 	/* instatiate a new negative dentry */
 	this.name = name;
-	UDBG;
 	this.len = strlen(name);
 	this.hash = full_name_hash(this.name, this.len);
 	parent_path = u2fs_get_path(parent, 0);
-	UDBG;
 	lower_dir_dentry = parent_path->dentry;
-	UDBG;
 	lower_dentry = d_lookup(lower_dir_dentry, &this);
-	UDBG;
 
 	if (lower_dentry)
 		goto setup_lower;
 
-	UDBG;
 	if (!lower_dir_dentry) {
 		err = -EPERM;
 		goto out;
 	}
 	lower_dentry = d_alloc(lower_dir_dentry, &this);
-	UDBG;
 	if (!lower_dentry) {
 		err = -ENOMEM;
 		goto out;
 	}
-	UDBG;
 	d_add(lower_dentry, NULL); /* instantiate and hash */
-	UDBG;
 
 setup_lower:
 	left_path.dentry = lower_dentry;
 	left_path.mnt = mntget(lower_dir_mnt);
-	UDBG;
 	u2fs_set_path(dentry, &left_path, 0);
-	UDBG;
 
 	/*
 	 * If the intent is to create a file, then don't return an error, so
@@ -389,11 +375,8 @@ out:
 	/* Updating the access time of dir */
 	fsstack_copy_attr_atime(parent->d_inode,
 		u2fs_lower_inode(parent->d_inode));
-	UDBG;
 	/* Reference count decrement */
-	UDBG;
 	dput(parent);
-	UDBG;
 	return ERR_PTR(err);
 }
 
