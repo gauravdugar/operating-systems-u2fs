@@ -64,7 +64,7 @@ Following functionality are implemented and works:
 -> MV (move/rename a file/dir)
 -> MKDIR (create new directory)
 -> TOUCH (create new file)
--> LN (create hard link)
+-> LN (create hard link, cannot create links of file/dir in right branch)
 -> LN -S (create soft link)
 -> STAT (check stat of a file/dir)
 	shows stat of file from higher priority

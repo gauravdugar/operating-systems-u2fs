@@ -72,14 +72,14 @@ static int u2fs_link(struct dentry *old_dentry, struct inode *dir,
 	lower_old_path = u2fs_get_path(old_dentry, 0);
 	if (!lower_old_path || !lower_old_path->dentry ||
 			!lower_old_path->dentry->d_inode)
-		lower_old_path = u2fs_get_path(old_dentry, 1);
-	if (!lower_old_path || !lower_old_path->dentry ||
-			!lower_old_path->dentry->d_inode)
-		return -ENOENT;
+		return -EPERM;
 	lower_new_path = u2fs_get_path(new_dentry, 0);
 
 	lower_old_dentry = lower_old_path->dentry;
 	lower_new_dentry = lower_new_path->dentry;
+
+	if (!lower_new_dentry || !lower_new_dentry->d_parent)
+	        return -EPERM;
 
 	if (!lower_new_dentry->d_parent->d_inode)
 		return -EPERM;
@@ -405,7 +405,17 @@ static int u2fs_readlink(struct dentry *dentry, char __user *buf, int bufsiz)
 	struct path *left_path;
 
 	left_path = u2fs_get_path(dentry, 0);
+	if (!left_path || !left_path->dentry)
+		return -ENOENT;
 	lower_dentry = left_path->dentry;
+
+	if (!lower_dentry->d_inode) {
+		left_path = u2fs_get_path(dentry, 1);
+		if (!left_path || !left_path->dentry)
+			return -ENOENT;
+		lower_dentry = left_path->dentry;
+	}
+
 	if (!lower_dentry->d_inode->i_op ||
 			!lower_dentry->d_inode->i_op->readlink) {
 		err = -EINVAL;
