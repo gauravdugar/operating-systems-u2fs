@@ -7,3 +7,8 @@ config U2_FS
 	  template for developing or debugging other stackable file systems,
 	  and more (see Documentation/filesystems/u2fs.txt).  See
 	  <http://u2fs.filesystems.org/> for details.
+config EXTRA_CREDIT
+	 bool "Unionfs extended attributes"
+	 depends on U2_FS
+	 help
+	   Eliminates duplicates entries. Extra Xredit implementation.

@@ -21,29 +21,41 @@ static int u2fs_create(struct inode *dir, struct dentry *dentry,
 
 	left_path = u2fs_get_path(dentry, 0);
 	lower_dentry = left_path->dentry;
-	lower_parent_dentry = lock_parent(lower_dentry);
 
 	err = mnt_want_write(left_path->mnt);
 	if (err)
-		goto out_unlock;
+		goto out;
+	if (lower_dentry->d_parent->d_inode)
+		err = check_unlink_whiteout(dentry, lower_dentry);
+	if (err > 0)
+		err = 0;
+	if (err && err != -EROFS)
+		goto out;
+
+	if(!lower_dentry->d_parent->d_inode) {
+		err = -EPERM;
+		goto out;
+	}
+
+	lower_parent_dentry = u2fs_lock_parent(lower_dentry);
 
 	pathcpy(&saved_path, &nd->path);
 	pathcpy(&nd->path, left_path);
 	err = vfs_create(lower_parent_dentry->d_inode, lower_dentry, mode, nd);
 	pathcpy(&nd->path, &saved_path);
 	if (err)
-		goto out;
+		goto out_unlock;
 	UDBG;
 	err = u2fs_interpose(dentry, dir->i_sb);
 	if (err)
-		goto out;
+		goto out_unlock;
 	fsstack_copy_attr_times(dir, u2fs_lower_inode(dir));
 	fsstack_copy_inode_size(dir, lower_parent_dentry->d_inode);
 
-out:
-	mnt_drop_write(left_path->mnt);
 out_unlock:
 	unlock_dir(lower_parent_dentry);
+out:
+	mnt_drop_write(left_path->mnt);
 	return err;
 }
 
@@ -212,6 +224,10 @@ static int u2fs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	struct path *left_path;
 
 	left_path = u2fs_get_path(dentry, 0);
+	if(!left_path || !left_path->dentry) {
+		// COPYUP
+		return -EPERM;
+	}
 	lower_dentry = left_path->dentry;
 	lower_parent_dentry = lock_parent(lower_dentry);
 
@@ -238,6 +254,7 @@ out_unlock:
 	return err;
 }
 
+/*
 static int u2fs_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	struct dentry *lower_dentry;
@@ -256,7 +273,7 @@ static int u2fs_rmdir(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
-	d_drop(dentry);	/* drop our dentry on success (why not VFS's job?) */
+	d_drop(dentry);	// drop our dentry on success (why not VFS's job?)
 	if (dentry->d_inode)
 		clear_nlink(dentry->d_inode);
 	fsstack_copy_attr_times(dir, lower_dir_dentry->d_inode);
@@ -269,6 +286,7 @@ out_unlock:
 	unlock_dir(lower_dir_dentry);
 	return err;
 }
+*/
 
 static int u2fs_mknod(struct inode *dir, struct dentry *dentry, int mode,
 		dev_t dev)
@@ -317,13 +335,24 @@ static int u2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct dentry *trap = NULL;
 	struct path *lower_old_path, *lower_new_path;
 
+	UDBG;
 	lower_old_path = u2fs_get_path(old_dentry, 0);
+	UDBG;
 	lower_new_path = u2fs_get_path(new_dentry, 0);
+	UDBG;
+	if (!lower_old_path || !lower_new_path || !lower_old_path->dentry
+			|| !lower_new_path->dentry)
+		return -EPERM;
+	UDBG;
 	lower_old_dentry = lower_old_path->dentry;
 	lower_new_dentry = lower_new_path->dentry;
+	UDBG;
+	if(!lower_old_dentry->d_inode || !lower_new_dentry->d_parent->d_inode)
+		return -EPERM;
 	lower_old_dir_dentry = dget_parent(lower_old_dentry);
 	lower_new_dir_dentry = dget_parent(lower_new_dentry);
 
+	UDBG;
 	trap = lock_rename(lower_old_dir_dentry, lower_new_dir_dentry);
 	/* source should not be ancestor of target */
 	if (trap == lower_old_dentry) {
@@ -331,23 +360,29 @@ static int u2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		goto out;
 	}
 	/* target should not be ancestor of source */
+	UDBG;
 	if (trap == lower_new_dentry) {
 		err = -ENOTEMPTY;
 		goto out;
 	}
 
+	UDBG;
 	err = mnt_want_write(lower_old_path->mnt);
+	UDBG;
 	if (err)
 		goto out;
 	err = mnt_want_write(lower_new_path->mnt);
 	if (err)
 		goto out_drop_old_write;
 
+	UDBG;
 	err = vfs_rename(lower_old_dir_dentry->d_inode, lower_old_dentry,
 			lower_new_dir_dentry->d_inode, lower_new_dentry);
+	UDBG;
 	if (err)
 		goto out_err;
 
+	UDBG;
 	fsstack_copy_attr_all(new_dir, lower_new_dir_dentry->d_inode);
 	fsstack_copy_inode_size(new_dir, lower_new_dir_dentry->d_inode);
 	if (new_dir != old_dir) {
@@ -357,13 +392,18 @@ static int u2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 				lower_old_dir_dentry->d_inode);
 	}
 
+	UDBG;
 out_err:
+	UDBG;
 	mnt_drop_write(lower_new_path->mnt);
 out_drop_old_write:
+	UDBG;
 	mnt_drop_write(lower_old_path->mnt);
 out:
+	UDBG;
 	unlock_rename(lower_old_dir_dentry, lower_new_dir_dentry);
 	dput(lower_old_dir_dentry);
+	UDBG;
 	dput(lower_new_dir_dentry);
 	return err;
 }

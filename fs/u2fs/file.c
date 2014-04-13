@@ -10,7 +10,11 @@
  */
 
 #include "u2fs.h"
-
+#ifdef CONFIG_EXTRA_CREDIT
+#define DUPLICATE_ELIMINATION true
+#else
+#define DUPLICATE_ELIMINATION false
+#endif
 static ssize_t u2fs_read(struct file *file, char __user *buf,
 		size_t count, loff_t *ppos)
 {
@@ -82,18 +86,6 @@ static int u2fs_filldir(void *dirent, const char *oname, int namelen,
 	UDBG;
 	is_whiteout = is_whiteout_name(&name, &namelen);
 
-	// found = find_filldir_node(buf->rdstate, name, namelen, is_whiteout);
-	/*
-	   if (found) {
-
-	 * If we had non-whiteout entry in dir cache, then mark it
-	 * as a whiteout and but leave it in the dir cache.
-
-	 if (is_whiteout && !found->whiteout)
-	 found->whiteout = is_whiteout;
-	 goto out;
-	 }
-	 */
 	/* if 'name' isn't a whiteout, filldir it. */
 	UDBG;
 	if (!is_whiteout) {
@@ -124,7 +116,7 @@ static int u2fs_filldir(void *dirent, const char *oname, int namelen,
 	 */
 
 	UDBG;
-	 if (!err && (is_whiteout && !buf->right))
+	 if (!err && ((DUPLICATE_ELIMINATION || is_whiteout) && !buf->right))
 	 		err = add_filldir_node(buf->heads, name, namelen,
 	 			buf->size, is_whiteout);
 	UDBG;

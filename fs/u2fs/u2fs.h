@@ -41,6 +41,7 @@
 /* Start size for list as 50 */
 #define START_FILLDIR_SIZE      50
 
+extern int check_unlink_whiteout(struct dentry *dentry, struct dentry *lower_dentry);
 /* operations vectors defined in specific files */
 extern struct dentry *lookup_whiteout(const char *name,
 		struct dentry *lower_parent);
