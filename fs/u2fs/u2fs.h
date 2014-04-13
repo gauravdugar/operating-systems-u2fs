@@ -35,6 +35,7 @@
 /* useful for tracking code reachability */
 #define UDBG printk(KERN_DEFAULT "DBG:%s:%s:%d\n", __FILE__, __func__, __LINE__)
 
+/* flag group to check if write permission is needed or not */
 #define OPEN_WRITE_FLAGS (O_WRONLY | O_RDWR | O_APPEND)
 #define IS_WRITE_FLAG(flag) ((flag) & OPEN_WRITE_FLAGS)
 

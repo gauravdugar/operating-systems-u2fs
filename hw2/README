@@ -1,1 +1,92 @@
-XXX: fill in
+CSE-506, OPERATING SYSTEMS
+HOMEWORK:2
+APRIL 13, 2014
+BY:     GAURAV DUGAR
+gdugar@cs.stonybrook.edu
+______________________________________________________________________________
+
+WEBSITE_REFERENCES
+------------------
+1. http://lxr.fsl.cs.sunysb.edu/linux/source
+Referred for linux source code for files like dcache.c, fs.h
+
+2. http://git.fsl.cs.sunysb.edu/?p=unionfs-3.2.y.git;a=summary
+Referred for UNION_FS source code.
+Used to refer many files and functions. Respective comments have been added
+with all such files and functions.
+
+
+INITIAL_SETUP
+-------------
+1. make kernel using kernel.config provided in:
+	/usr/src/hw2-gdugar/
+	OR
+	/usr/src/hw2-gdugar/hw2/
+
+2. To install module, run from hw2-gdugar folder,
+	insmod fs/u2fs/u2fs.ko
+
+3. To mount U2FS, run
+	mount -t u2fs -o ldir={LPATH},rdir={RPATH} null {MOUNT_PATH}
+
+	LPATH, RPATH and MOUNT_PATH should pre-exist and should be proper.
+
+4. Now go to MOUNT_PATH and perform any operations as needed.
+
+
+HACKS
+-----
+1. Wrapfs code was copied and renamed to u2fs. (including filename, text and all)
+2. Respective entries made in magic and super.
+3. Then many functions and files were taken and modified from UNIONFS to U2FS code.
+4. Many functions were modified to accept extra int argument, 0 implies left and 1 meant right.
+5. Inode does not point to noth lower Inodes. It points to only one.
+   The other (with less priority) can be accesses using its dentry. 
+6. Superblock has left and right pointers.
+7. Dentry has left and right path.
+
+
+FUNCTIONALITY_IMPLEMENTED
+-------------------------
+******* COPY_UP is NOT implemented, so certain functions does not work in right branch.
+	They don't cause kernel crash, they just return appropriate errors.
+
+******* WHITEOUT has been implemented and works perfectly.
+	It also does not show the .wh.* files while doing LS
+
+Following functionality are implemented and works:
+-> LS
+-> FIND (find a file "find . -name {filename}")
+-> CAT/LESS (read content of a file, works for both branches)
+-> RM (remove a file)
+-> RMDIR (remove directory)
+-> CP (copy a file)
+-> MV (move/rename a file/dir)
+-> MKDIR (create new directory)
+-> TOUCH (create new file)
+-> LN (create hard link)
+-> LN -S (create soft link)
+-> STAT (check stat of a file/dir)
+	shows stat of file from higher priority
+	branch (left) if both branches have same.
+-> DF
+-> CHMOD (change mode works on left, not on right as copyup is required)
+
+and many more...!!
+
+
+DUPLICATE_ELIMINATION
+---------------------
+hw2-gdugar/hw2/coreutils/src/ls.c has been modified for duplicate name elimination.
+It can be compiled by running "make" in hw2/coreutils.
+
+To use/run this custom ls, run:
+	/usr/src/hw2-gdugar/hw2/coreutils/src/ls {OPTIONAL_LOCATION_FOR_LS}
+
+
+EXTRA_CREDIT_DUPLICATE_ELIMINATION
+----------------------------------
+1. use kernel.cofig from hw2-gdugar/hw2/ or hw2-gdugar/ directory.
+2. add CONFIG_EXTRA_CREDIT = y in config file.
+3. make using it and it works. The normal ls will not show the duplicate entries.
+4. Its implementation is in hw2-gdugar/fs/u2fs/file.c

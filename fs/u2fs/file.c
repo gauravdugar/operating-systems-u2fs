@@ -319,29 +319,10 @@ static int __open_file(struct inode *inode, struct file *file,
 		 * if the open will change the file, copy it up otherwise
 		 * defer it.
 		 */
-		if (lower_flags & O_TRUNC) {
-			/*
-			   int size = 0;
-			   int err = -EROFS;
-			   copyup the file
-			   for (bindex = bstart - 1; bindex >= 0; bindex--) {
-			   err = copyup_file(parent->d_inode, file,
-			   bstart, bindex, size);
-			   if (!err) {
-			   only one regular file open
-			   fbend(file) = fbstart(file);
-			   break;
-			   }
-			   }
-			   return err;*/
+		if (lower_flags & O_TRUNC)
 			return -EPERM;
-		} else {
-			/*
-			 * turn off writeable flags, to force delayed copyup
-			 * by caller.
-			 */
+		else
 			lower_flags &= ~(OPEN_WRITE_FLAGS);
-		}
 	}
 	dget(lower_dentry);
 
