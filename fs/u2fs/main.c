@@ -342,6 +342,9 @@ static int __init init_u2fs_fs(void)
 	err = u2fs_init_dentry_cache();
 	if (err)
 		goto out;
+	err = u2fs_init_filldir_cache();
+	if (unlikely(err))
+		goto out;
 	err = register_filesystem(&u2fs_fs_type);
 out:
 	if (err) {

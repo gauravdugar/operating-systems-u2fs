@@ -38,11 +38,14 @@
 #define OPEN_WRITE_FLAGS (O_WRONLY | O_RDWR | O_APPEND)
 #define IS_WRITE_FLAG(flag) ((flag) & OPEN_WRITE_FLAGS)
 
+/* Start size for list as 50 */
+#define START_FILLDIR_SIZE      50
+
 /* operations vectors defined in specific files */
 extern struct dentry *lookup_whiteout(const char *name,
-			struct dentry *lower_parent);
+		struct dentry *lower_parent);
 extern int create_whiteout(struct dentry *dentry);
-
+extern bool is_whiteout_name(char **namep, int *namelenp);
 extern const struct file_operations u2fs_main_fops;
 extern const struct file_operations u2fs_dir_fops;
 extern const struct inode_operations u2fs_main_iops;
@@ -64,6 +67,33 @@ extern struct dentry *u2fs_lookup(struct inode *dir, struct dentry *dentry,
 extern struct inode *u2fs_iget(struct super_block *sb,
 		struct inode *lower_inode);
 extern int u2fs_interpose(struct dentry *dentry, struct super_block *sb);
+
+extern int u2fs_init_filldir_cache(void);
+extern void u2fs_destroy_filldir_cache(void);
+extern struct filldir_node *find_filldir_node(struct list_head *heads,
+		const char *name, int namelen, int size);
+extern int add_filldir_node(struct list_head *heads, const char *name,
+		int namelen, int size, int whiteout);
+extern void free_filldirs(struct list_head *heads, int size);
+
+/*
+ * Taken from union.h code
+ *
+ * structure for making the linked list of entries by readdir on left branch
+ * to compare with entries on right branch
+ */
+struct filldir_node {
+	struct list_head file_list;	/* list for directory entries */
+	char *name;		/* name entry */
+	int hash;		/* name hash */
+	int namelen;		/* name len since name is not 0 terminated */
+
+	/* is this a whiteout entry? */
+	int whiteout;
+
+	/* Inline name, so we don't need to separately kmalloc small ones */
+	char iname[DNAME_INLINE_LEN];
+};
 
 /* file private data */
 struct u2fs_file_info {
@@ -104,6 +134,14 @@ static inline struct u2fs_inode_info *U2FS_I(const struct inode *inode)
 {
 	return container_of(inode, struct u2fs_inode_info, vfs_inode);
 }
+
+struct u2fs_getdents_callback {
+	void *dirent;
+	filldir_t filldir;
+	struct list_head *heads;
+	bool right;
+	int size;
+};
 
 /* dentry to private data */
 #define U2FS_D(dent) ((struct u2fs_dentry_info *)(dent)->d_fsdata)
@@ -344,6 +382,13 @@ static inline struct dentry *lookup_lck_len(const char *name,
 
 out:
 	return d;
+}
+
+static inline void init_filldirs(struct list_head *heads, int size)
+{
+	int i;
+	for (i = 0; i < size; i++)
+		INIT_LIST_HEAD(&heads[i]);
 }
 
 #endif	/* not _U2FS_H_ */

@@ -68,18 +68,96 @@ static ssize_t u2fs_write(struct file *file, const char __user *buf,
 	return err;
 }
 
+/* based on generic filldir in fs/readir.c */
+static int u2fs_filldir(void *dirent, const char *oname, int namelen,
+		loff_t offset, u64 ino, unsigned int d_type)
+{
+	struct u2fs_getdents_callback *buf = dirent;
+	int err = 0;
+	int is_whiteout;
+	char *name = (char *) oname;
+
+	struct filldir_node *node = NULL;
+
+	UDBG;
+	is_whiteout = is_whiteout_name(&name, &namelen);
+
+	// found = find_filldir_node(buf->rdstate, name, namelen, is_whiteout);
+	/*
+	   if (found) {
+
+	 * If we had non-whiteout entry in dir cache, then mark it
+	 * as a whiteout and but leave it in the dir cache.
+
+	 if (is_whiteout && !found->whiteout)
+	 found->whiteout = is_whiteout;
+	 goto out;
+	 }
+	 */
+	/* if 'name' isn't a whiteout, filldir it. */
+	UDBG;
+	if (!is_whiteout) {
+		// off_t pos = rdstate2offset(buf->rdstate);
+		// u64 unionfs_ino = ino;
+		if (buf->right)
+			node = find_filldir_node(buf->heads, name,
+					namelen, buf->size);
+		if(node)
+			goto out;
+		UDBG;
+		err = buf->filldir(buf->dirent, name, namelen,
+				offset, ino, d_type);
+		// buf->rdstate->offset++;
+		// verify_rdstate_offset(buf->rdstate);
+	}
+	UDBG;
+	/*
+	 * If we did fill it, stuff it in our hash, otherwise return an
+	 * error.
+	 */
+	/*
+	 if (err) {
+	 	buf->filldir_error = err;
+	 	goto out;
+	 }
+	 buf->entries_written++;
+	 */
+
+	UDBG;
+	 if (!err && (is_whiteout && !buf->right))
+	 		err = add_filldir_node(buf->heads, name, namelen,
+	 			buf->size, is_whiteout);
+	UDBG;
+out:
+	return err;
+}
+
 static int u2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
 {
 	int err = 0;
 	struct file *lower_file = NULL;
 	struct dentry *dentry = file->f_path.dentry;
 	int i = 0;
+	struct u2fs_getdents_callback wrapper;
+	struct list_head heads[START_FILLDIR_SIZE];
 
+	init_filldirs(heads, START_FILLDIR_SIZE);
+	UDBG;
+	wrapper.heads = heads;
+	UDBG;
+	wrapper.size = START_FILLDIR_SIZE;
+	wrapper.dirent = dirent;
+	wrapper.filldir = filldir;
+	wrapper.right = false;
+	UDBG;
 	for(i = 0; i < 2; i++) {
 		lower_file = u2fs_lower_file(file, i);
+		if(i == 1)
+			wrapper.right = true;
 		if (!lower_file)
 			continue;
-		err = vfs_readdir(lower_file, filldir, dirent);
+		err = vfs_readdir(lower_file, u2fs_filldir, &wrapper);
+		UDBG;
 		file->f_pos = lower_file->f_pos;
 		if (err >= 0)		/* copy the atime */
 			fsstack_copy_attr_atime(dentry->d_inode,
@@ -87,6 +165,9 @@ static int u2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
 		else
 			break;
 	}
+	UDBG;
+	free_filldirs(heads, START_FILLDIR_SIZE);
+	UDBG;
 	return err;
 }
 
@@ -433,7 +514,7 @@ static int u2fs_fsync(struct file *file, loff_t start, loff_t end,
 
 	err = -ENOENT;
 
- 	for(i = 0; i < 2; i++) {
+	for(i = 0; i < 2; i++) {
 		lower_dentry = u2fs_get_lower_dentry(dentry, i);
 		if (!lower_dentry || !lower_dentry->d_inode)
 			continue;

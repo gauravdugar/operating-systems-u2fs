@@ -91,9 +91,9 @@ out_unlock:
 static int u2fs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	int err;
-	struct dentry *lower_dentry;
+	struct dentry *lower_dentry = NULL, *temp_lower_dentry;
 	struct dentry *lower_dir_dentry;
-	struct vfsmount *mount = NULL;
+	struct vfsmount *mount = NULL, *temp_mount = NULL;
 	bool right = false, left = false;
 	int i = 0;
 	struct dentry *parent;
@@ -101,21 +101,22 @@ static int u2fs_unlink(struct inode *dir, struct dentry *dentry)
 	parent = u2fs_lock_parent(dentry);
 
 	UDBG;
-	for(i = 1; i >= 0; i++) {
-		lower_dentry = u2fs_get_lower_dentry(dentry, i);
-		mount = u2fs_get_lower_mnt(dentry, i);
-		if(lower_dentry && lower_dentry->d_inode) {
+	for(i = 1; i >= 0; i--) {
+		temp_lower_dentry = u2fs_get_lower_dentry(dentry, i);
+		temp_mount = u2fs_get_lower_mnt(dentry, i);
+		if(temp_lower_dentry && temp_lower_dentry->d_inode) {
 			if(i == 1)
 				right = true;
 			if(i == 0)
 				left = true;
+			lower_dentry = temp_lower_dentry;
+			mount = temp_mount;
 		}
 	}
-
 	UDBG;
 	if(!lower_dentry || !lower_dentry->d_inode) {
-		u2fs_unlock_parent(dentry, parent);
-		return -ENOENT;
+		err = -ENOENT;
+		goto out_err;
 	}
 
 	UDBG;
@@ -156,14 +157,18 @@ static int u2fs_unlink(struct inode *dir, struct dentry *dentry)
 
 	UDBG;
 	d_drop(dentry); /* this is needed, else LTP fails (VFS won't do it) */
-
+	UDBG;
 out:
 	mnt_drop_write(mount);
 
 out_unlock:
-	unlock_dir(lower_dir_dentry);
+	//unlock_dir(lower_dir_dentry);
+	UDBG;
 	dput(lower_dentry);
-	u2fs_unlock_parent(parent, dentry);
+	UDBG;
+
+out_err:
+	u2fs_unlock_parent(dentry, parent);
 	return err;
 }
 
@@ -456,7 +461,7 @@ static int u2fs_setattr(struct dentry *dentry, struct iattr *ia)
 		goto out_err;
 
 	lower_dentry = u2fs_get_lower_dentry(dentry, 0);
-
+	// COPYUP
 	if(!lower_dentry || !lower_dentry->d_inode) {
 		err = -EPERM;
 		goto out_err;
@@ -532,7 +537,7 @@ const struct inode_operations u2fs_dir_iops = {
 	.unlink		= u2fs_unlink,
 	.symlink	= u2fs_symlink,
 	.mkdir		= u2fs_mkdir,
-	.rmdir		= u2fs_rmdir,
+	.rmdir		= u2fs_unlink,
 	.mknod		= u2fs_mknod,
 	.rename		= u2fs_rename,
 	.permission	= u2fs_permission,

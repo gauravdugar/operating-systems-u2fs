@@ -61,12 +61,16 @@ void u2fs_set_max_namelen(long *namelen)
 /* check if @namep is a whiteout, update @namep and @namelenp accordingly */
 bool is_whiteout_name(char **namep, int *namelenp)
 {
+	UDBG;
 	if (*namelenp > U2FS_WHLEN &&
 			!strncmp(*namep, U2FS_WHPFX, U2FS_WHLEN)) {
 		*namep += U2FS_WHLEN;
+		UDBG;
 		*namelenp -= U2FS_WHLEN;
+		UDBG;
 		return true;
 	}
+	UDBG;
 	return false;
 }
 
