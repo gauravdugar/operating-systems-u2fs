@@ -53,6 +53,8 @@ FUNCTIONALITY_IMPLEMENTED
 
 ******* WHITEOUT has been implemented and works perfectly.
 	It also does not show the .wh.* files while doing LS
+	It is not able to create directory structure for whiteout file.
+	For such situations it denies the operation.
 
 Following functionality are implemented and works:
 -> LS
