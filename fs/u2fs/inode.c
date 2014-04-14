@@ -79,7 +79,7 @@ static int u2fs_link(struct dentry *old_dentry, struct inode *dir,
 	lower_new_dentry = lower_new_path->dentry;
 
 	if (!lower_new_dentry || !lower_new_dentry->d_parent)
-	        return -EPERM;
+		return -EPERM;
 
 	if (!lower_new_dentry->d_parent->d_inode)
 		return -EPERM;

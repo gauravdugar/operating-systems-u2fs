@@ -158,21 +158,16 @@ static struct u2fs_dentry_info *u2fs_parse_options(
 		goto out_error;
 	}
 
-	UDBG;
 	err = u2fs_get_kern_path(ldir, &lpath);
 	if (err)
 		goto out_error;
-	UDBG;
 
 	err = u2fs_get_kern_path(rdir, &rpath);
 	if (err) {
 
-		UDBG;
 		path_put(&lpath);
-		UDBG;
 		goto out_error;
 	}
-	UDBG;
 
 	if (is_branch_overlap(lpath.dentry, rpath.dentry)) {
 		printk(KERN_ERR "u2fs: Directories overlap\n");
@@ -189,11 +184,8 @@ static struct u2fs_dentry_info *u2fs_parse_options(
 	goto out;
 
 out_error:
-	UDBG;
 	kfree(root_info);
-	UDBG;
 	root_info = ERR_PTR(err);
-	UDBG;
 out:
 	return root_info;
 }
@@ -223,7 +215,6 @@ static int u2fs_read_super(struct super_block *sb, void *raw_data, int silent)
 	/* parse lower path */
 	root_info = u2fs_parse_options(sb, dev_name);
 
-	UDBG;
 	if (IS_ERR(root_info)) {
 		printk(KERN_ERR
 				"u2fs: read_super: error while parsing options "
